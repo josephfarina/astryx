@@ -21,6 +21,7 @@ import {
   project,
   seedRelease,
   tempDir,
+  writeJson,
 } from '../../test-utils/release-fixtures.mjs';
 
 const BIN = fileURLToPath(
@@ -49,7 +50,11 @@ function run(cwd, args, options = {}) {
     encoding: 'utf-8',
     input: options.input ?? '',
     env: {
-      ...process.env,
+      // Not the package manager running the tests: its npm_* settings would
+      // name it as the project's package manager.
+      ...Object.fromEntries(
+        Object.entries(process.env).filter(([key]) => !/^npm_/iu.test(key)),
+      ),
       HOME: home,
       USERPROFILE: home,
       XDG_CACHE_HOME: cache,
@@ -212,6 +217,7 @@ describe('reminders through the real bin (FR10)', () => {
     });
     installCore(root, CLI_VERSION);
     linkThisCliAsProjectCli(root);
+    writeJson(path.join(root, 'package-lock.json'), {lockfileVersion: 3});
     const cache = tempDir('cache');
     const home = tempDir('home');
     fs.mkdirSync(path.join(cache, 'astryx'), {recursive: true});

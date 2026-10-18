@@ -25,6 +25,7 @@ import {
   startRegistry,
 } from '../test-utils/global-local-fixtures.mjs';
 import {
+  CLI_VERSION,
   cleanupFixtures,
   installCore,
   project,
@@ -318,7 +319,7 @@ describe.skipIf(!POSIX)(
       expect(r.lines).toEqual([handedTo('9.0.1')('9.0.3')]);
     });
 
-    it('G11 a global copy that predates the hand-off answers itself; newer copies and doctor name its replacement', () => {
+    it('G11 a global copy that predates the hand-off answers itself; newer copies and doctor name its replacement, even in a fresh home', () => {
       const pc = computer();
       // A release from before the hand-off: no release-choice module.
       const old = globalCli('npm', '9.0.0', {root: pc.home});
@@ -587,6 +588,7 @@ describe.skipIf(!POSIX)(
           '9.0.5',
         );
         const dir = makeProject({core: '9.0.1', cli: '9.0.1'});
+        writeJson(path.join(dir, 'package-lock.json'), {lockfileVersion: 3});
         const json = run(g.bin, ['--version', '--json'], {cwd: dir, pc, env});
         expect(json.stderr).not.toContain('this project uses');
         const first = run(g.bin, ['--version'], {cwd: dir, pc, env});
@@ -741,7 +743,11 @@ describe.skipIf(!POSIX)(
         cwd: dir,
         encoding: 'utf8',
         env: {
-          ...process.env,
+          ...Object.fromEntries(
+            Object.entries(process.env).filter(
+              ([key]) => !/^(npm_|XDG_)/iu.test(key),
+            ),
+          ),
           HOME: pc.home,
           XDG_CACHE_HOME: pc.cache,
           XDG_CONFIG_HOME: path.join(pc.home, '.config'),
@@ -843,6 +849,20 @@ describe.skipIf(!POSIX)(
         const r = run(g.bin, ['--version'], {cwd, pc});
         expect(r.stdout).toBe('9.0.4');
         expect(r.lines).toEqual([handedTo('9.0.4')('9.0.0')]);
+      }
+      // Inside the CLI's own package, whose node_modules links this
+      // checkout's Core: label the workspace with that Core's version.
+      const repo = tempDir('repo');
+      writeJson(path.join(repo, 'package.json'), {name: 'repo', private: true});
+      writeJson(path.join(repo, 'packages', 'core', 'package.json'), {
+        name: '@astryxdesign/core',
+        version: CLI_VERSION,
+      });
+      const own = placeCli(path.join(repo, 'packages', 'cli'), CLI_VERSION);
+      for (const cwd of [own.dir, path.join(own.dir, 'foundation')]) {
+        const r = run(g.bin, ['--version'], {cwd, pc});
+        expect(r.stdout).toBe(CLI_VERSION);
+        expect(r.lines).toEqual([handedTo(CLI_VERSION)('9.0.0')]);
       }
     });
   },

@@ -29,6 +29,7 @@ import {
   project,
   seedRelease,
   tempDir,
+  writeJson,
 } from '../../test-utils/release-fixtures.mjs';
 
 afterEach(cleanupFixtures);
@@ -164,6 +165,8 @@ describe('projectLag', () => {
     const cacheDir = tempDir('cache');
     updateGlobalState({latest: '0.7.3', checkOkAt: 1}, cacheDir);
     const coreOnly = project(tempDir(), {'@astryxdesign/core': '0.7.1'});
+    // The lockfile names the package manager, whatever runs the tests.
+    writeJson(path.join(coreOnly, 'package-lock.json'), {lockfileVersion: 3});
     installCore(coreOnly, '0.7.1');
     const lag = projectLag({cwd: coreOnly, current: '0.7.1', cacheDir});
     expect(lag).toMatchObject({

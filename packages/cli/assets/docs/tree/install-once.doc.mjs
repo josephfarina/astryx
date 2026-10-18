@@ -104,7 +104,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "A text-mode run prints one reminder line on standard error, at most once a day for each reason, and never with `--json`. Reminders never change a command's output or exit status. They need a newest release the CLI installed for your computer has found, so a fresh home folder, such as a CI run's, never prints one.",
+          text: "A text-mode run prints one reminder line on standard error, at most once a day for each reason, and never with `--json`. Reminders never change a command's output or exit status. The reminders about a newer release need one that the CLI installed for your computer has found, so a fresh home folder, such as a CI run's, never prints them. The reminder about an old `astryx` command needs no check.",
         },
         {
           type: 'list',

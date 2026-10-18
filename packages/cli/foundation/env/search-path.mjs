@@ -36,7 +36,17 @@ const MAX_SHIM_BYTES = 64 * 1024;
  * (PowerShell).
  */
 const SHIM_PACKAGE =
-  /((?:\$basedir|%~dp0|%dp0%|\$PSScriptRoot)?[^"'\s:;]*node_modules[\\/]@astryxdesign[\\/]cli)(?=[\\/"'])/gu;
+  /((?:\$basedir(?:_abs|_win)?|%~dp0|%dp0%|\$PSScriptRoot)?[^"'\s:;$%]*node_modules[\\/]@astryxdesign[\\/]cli)(?=[\\/"'])/gu;
+
+/** The shim folder written in a shim's text, in each shell's spelling. */
+const SHIM_BASE =
+  /^(?:\$basedir(?:_abs|_win)?|%~dp0|%dp0%|\$PSScriptRoot)[\\/]?/u;
+
+/**
+ * The absolute target some package managers record in a shim's comment
+ * (`# cmd-shim-target=<file>`).
+ */
+const SHIM_TARGET_LINE = /^\s*(?:#|@?rem|::)\s*cmd-shim-target=(.+?)\s*$/imu;
 
 /**
  * @typedef {object} SearchPathCommand
@@ -99,12 +109,18 @@ export function astryxCliRootOf(file) {
     return null;
   }
   const base = path.dirname(file);
+  const target = SHIM_TARGET_LINE.exec(text)?.[1];
+  if (target && path.isAbsolute(target)) {
+    for (let dir = path.dirname(target); ;) {
+      if (cliVersionAt(dir) !== null) return dir;
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
   for (const match of text.matchAll(SHIM_PACKAGE)) {
     const named = match[1]
-      .replace(
-        /^(?:\$basedir|%~dp0|%dp0%|\$PSScriptRoot)[\\/]?/u,
-        `${base}${path.sep}`,
-      )
+      .replace(SHIM_BASE, `${base}${path.sep}`)
       .replace(/[\\/]/gu, path.sep);
     const dir = path.resolve(base, named);
     if (cliVersionAt(dir) !== null) return dir;
