@@ -29,7 +29,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "The CLI ends most answers with the next command to run: a hint, an error fix, a Doctor fix, or a doc example. By default each one starts with what the app's package manager runs, such as `npx astryx` or `pnpm exec astryx`.",
+          text: "The CLI ends most answers with the next command to run: a hint, an error fix, a Doctor fix, or a doc example. By default each one starts with a command that reaches the release that answered: what the app's package manager runs, such as `npx astryx` or `pnpm exec astryx`, when the app's own CLI answered, and otherwise the CLI package pinned to that release, such as `npx @astryxdesign/cli@0.7.2`.",
         },
         {
           type: 'prose',

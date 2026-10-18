@@ -461,6 +461,52 @@ async function main() {
     ok(`stop during install (${how}): next run recovers`, again.code === 0 && lastLine(again.stdout) === '0.6.3', `rc=${again.code} ${lastLine(again.stdout)} ${again.secs}s`);
   }
 
+  // case-insensitive file systems (macOS default APFS, Windows NTFS): the same folder spelled in another case
+  {
+    const caseDir = path.join(FX, 'CaseProj');
+    await makeProject(caseDir, {'@astryxdesign/core': '0.7.1'}, regMain.url);
+    const other = path.join(FX, 'caseproj');
+    const insensitive = fs.existsSync(other);
+    if (!insensitive) record('case: file system is case-sensitive here', 'info', 'skipped');
+    else {
+      const home = newHome('case');
+      const env = homeEnv(home, regMain.url);
+      const a = await astryx(['--version'], {cwd: caseDir, env});
+      const b = await astryx(['--version'], {cwd: path.join(other, 'src'), env});
+      const rel = fs.existsSync(path.join(cacheDirOf(home), 'releases')) ? fs.readdirSync(path.join(cacheDirOf(home), 'releases')).filter(n => !n.startsWith('.')) : [];
+      ok('case: project reached through a differently cased path answers the same release', lastLine(a.stdout) === '0.7.1' && lastLine(b.stdout) === '0.7.1' && whoLines(b.stderr).length === 1,
+        `CaseProj -> ${lastLine(a.stdout)}; caseproj/src -> ${lastLine(b.stdout)} ${JSON.stringify(whoLines(b.stderr))}`);
+      ok('case: no second install for the same release', rel.filter(n => n.toLowerCase() === '0.7.1').length === 1 && !/installing/i.test(b.stderr), `releases=${JSON.stringify(rel)}`);
+      // the home folder spelled in another case (USERPROFILE / HOME casing differs between tools)
+      const homeAlt = home.replace(/homes([\\/])case$/, 'HOMES$1CASE');
+      if (homeAlt !== home && fs.existsSync(homeAlt)) {
+        const c = await astryx(['--version'], {cwd: caseDir, env: homeEnv(homeAlt, regMain.url)});
+        ok('case: home folder spelled in another case reuses the cache', lastLine(c.stdout) === '0.7.1' && !/installing/i.test(c.stderr), `${lastLine(c.stdout)} ${JSON.stringify(c.stderr.trim().split(/\r?\n/).slice(0, 2))}`);
+      }
+      // a project folder whose own CLI is spelled in another case on PATH lookups
+      const d = await astryx(['component', 'Typeahead', '--json'], {cwd: path.join(other, 'src'), env});
+      const {json, clean} = cleanJson(d);
+      ok('case: --json clean through the differently cased path', d.code === 0 && json && clean, `rc=${d.code} stderr=${JSON.stringify(d.stderr.trim().slice(0, 120))}`);
+    }
+  }
+
+  // two global installs on PATH: the branch and an older release that predates global mode
+  {
+    const PREFIX2 = path.join(WORK, 'prefix-old');
+    const BIN2 = WIN ? PREFIX2 : path.join(PREFIX2, 'bin');
+    const home = newHome('two-globals');
+    const base = homeEnv(home, regMain.url);
+    const gi2 = await run(npmCmd, ['install', '-g', '--prefix', PREFIX2, '@astryxdesign/cli@0.7.1', '--no-audit', '--no-fund', '--loglevel=error'], {env: base, shell: true, timeoutMs: 600_000});
+    const pk = Object.keys(base).find(k => k.toUpperCase() === 'PATH');
+    const rest = base[pk].split(path.delimiter).filter(p => p !== BIN_DIR);
+    const envA = {...base, [pk]: [BIN_DIR, BIN2, ...rest].join(path.delimiter)};
+    const envB = {...base, [pk]: [BIN2, BIN_DIR, ...rest].join(path.delimiter)};
+    const a = await astryx(['--version'], {cwd: core070, env: envA});
+    const b = await astryx(['--version'], {cwd: core070, env: envB});
+    ok('two global installs, branch first on PATH: hands off (Core 0.7.0 project)', gi2.code === 0 && lastLine(a.stdout) === '0.7.0', `install rc=${gi2.code}; answered ${lastLine(a.stdout)}`);
+    record('two global installs, 0.7.1 first on PATH', 'info', `answered ${lastLine(b.stdout)} (0.7.1 predates the hand-off and answers itself)`);
+  }
+
   // background update switch (outside a project), last because it changes what answers outside projects
   {
     const home = newHome('update');

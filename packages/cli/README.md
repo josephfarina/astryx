@@ -15,7 +15,7 @@ npx @astryxdesign/cli template --list
 
 Once it's a project dependency (`npm install -D @astryxdesign/cli`), drop the scope and use the shorter `astryx` — e.g. `npx astryx component Button` or `pnpm exec astryx component Button`. Bare `astryx` resolves to an unrelated npm package until the CLI is installed, so prefer the scoped form above for first-run/one-off use.
 
-Or install it once for your computer (`npm i -g @astryxdesign/cli`) and run `astryx` in any folder. In a project, the release equal to the project's Core answers, whichever copy you start: a copy hands the run to the project's own CLI when that CLI matches its Core, and otherwise to the matching release, which it installs into your per-user cache. Outside a project, the newest release answers, kept current in the background. Text runs answered by anything but the project's own CLI print one `astryx: answered by …` line on standard error; `--json` results carry `meta.answeredBy` instead. `astryx docs cli/install-once` has the details.
+Or install it once for your computer (`npm i -g @astryxdesign/cli`) and run `astryx` in any folder. In a project, the release equal to the project's Core answers, whichever copy you start: a copy hands the run to the project's own CLI when that CLI matches its Core, and otherwise to the matching release, which it installs into your per-user cache. Outside a project, the newest release answers, kept current in the background. A text run prints one `astryx: answered by …` line on standard error unless you started it in the project's own CLI and that CLI answered it directly (a run another copy hands to the project's CLI prints one too); `--json` results carry `meta.answeredBy` instead. `astryx docs cli/install-once` has the details.
 
 ## Reading the CLI's own docs
 
@@ -67,7 +67,7 @@ Results for "button" (20 of 239):
                → astryx template BannerCollapsibleContent
 ```
 
-(The CLI prints the follow-up commands with your actual runner — `npx astryx …` when installed, or `npx @astryxdesign/cli …` when run one-off — or with the command an installed integration sets as its `cliCommand`.)
+(The CLI prints the follow-up commands so they reach the release that answered — `npx astryx …` when the project's own CLI answered, `astryx …` outside a project for the copy installed for your computer, or the package pinned to the answering release, such as `npx @astryxdesign/cli@0.7.2 …`, otherwise — or with the command an installed integration sets as its `cliCommand`.)
 
 Options:
 
