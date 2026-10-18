@@ -60,7 +60,10 @@ import {checkAppThemes, checkThemes} from './theme-checks.mjs';
 import {isOutsideProject} from '../../foundation/env/project-scope.mjs';
 import {answeredBy} from '../../foundation/release/run-context.mjs';
 import {knownLatestRelease} from '../../foundation/release/global-state.mjs';
+import {REPLACE_GLOBAL_COPY, globalLag, projectLag} from '../../foundation/release/reminders.mjs';
+import {astryxCommandsOnSearchPath} from '../../foundation/env/search-path.mjs';
 import {displayHomePath, inspectComputerAgentText} from '../../foundation/agent-docs/computer-agent-text.mjs';
+import {computerAgentTextSettings} from '../../foundation/env/user-settings.mjs';
 
 /**
  * @typedef {'pass'|'warn'|'fail'|'info'} DoctorStatus
@@ -1340,8 +1343,16 @@ export function checkCliCommand(ctx) {
  * @property {{cli: string, core: string | null, copy: string}} answeredBy
  * @property {string | null} latest the newest release known, or null
  * @property {Array<{path: string, state: import('../../foundation/agent-docs/computer-agent-text.mjs').ComputerAgentTextState}>} [agentText]
- *   each file of the computer-level agent text against this release's rendering
- * @property {string} [cwd] the folder doctor runs in, for the printed fix
+  *   each file of the computer-level agent text against this release's rendering
+ * @property {import('../../foundation/env/user-settings.mjs').ComputerAgentTextSettings} [agentTextSettings]
+ *   the person's choices about the computer-level agent text
+  * @property {string} [cwd] the folder doctor runs in, for the printed fix
+ * @property {import('../../foundation/release/reminders.mjs').GlobalLag | null} [globalLag]
+ *   why the global copy cannot move to the newest release (outside a project)
+ * @property {import('../../foundation/release/reminders.mjs').ProjectLag | null} [projectLag]
+ *   the project's release, when it is behind the newest (inside a project)
+ * @property {import('../../foundation/env/search-path.mjs').SearchPathCommand[]} [searchPathCommands]
+ *   the `astryx` commands on the search path, in order
  */
 
 /**
@@ -1363,16 +1374,35 @@ export function checkAnsweringRelease(ctx) {
 }
 
 /**
- * The newest release this computer knows of, beside the one that answered.
- * Runs inside and outside a project. Always `info`: it reports, never warns or
- * fails, and doctor installs nothing.
+ * The newest release this computer knows of, beside the one that answered
+ * (spec AST-081 FR10). Runs inside and outside a project. Inside one, a
+ * release behind the newest names the install and upgrade commands; outside
+ * one, a global copy that cannot move to the newest release warns with the
+ * cause and its fix. Doctor installs nothing.
  * @param {ComputerContext} ctx
  * @returns {DoctorCheck}
  */
 export function checkNewestRelease(ctx) {
-  const {latest} = ctx;
+  const {latest, globalLag, projectLag} = ctx;
   const {cli} = ctx.answeredBy;
   const base = {id: 'newest-release', label: 'Newest release', status: /** @type {const} */ ('info')};
+  if (globalLag) {
+    return {
+      ...base,
+      status: 'warn',
+      message: globalLag.newest
+        ? `The CLI installed for the computer cannot move to ${globalLag.newest}: ${globalLag.message}.`
+        : `The CLI installed for the computer cannot check for newer releases: ${globalLag.message}.`,
+      fix: globalLag.fix,
+    };
+  }
+  if (projectLag) {
+    return {
+      ...base,
+      message: `This project uses Astryx ${projectLag.current}; ${projectLag.newest} is the newest.`,
+      fix: `Run \`${projectLag.install}\`, then \`${projectLag.upgrade}\`.`,
+    };
+  }
   if (!latest) {
     return {
       ...base,
@@ -1389,49 +1419,105 @@ export function checkNewestRelease(ctx) {
 }
 
 /**
- * The computer-level agent text (spec AST-081 FR4, FR8): present and equal to
- * this release's rendering, present but different, or absent. Always `info`:
- * the text is optional, so it never warns or fails. A file Astryx did not
- * write counts as absent, and `init --user` keeps it.
+ * The `astryx` commands on the search path (spec AST-081 FR11): the first is
+ * the one a shell runs. Warns when it is not the Astryx CLI, or is a release
+ * that predates the hand-off and so answers every folder itself.
+ * @param {ComputerContext} ctx
+ * @returns {DoctorCheck}
+ */
+export function checkCliOnPath(ctx) {
+  const rows = ctx.searchPathCommands ?? astryxCommandsOnSearchPath();
+  const base = {id: 'cli-on-path', label: '`astryx` on the search path'};
+  const describe = (/** @type {import('../../foundation/env/search-path.mjs').SearchPathCommand} */ row) =>
+    row.astryx ? `${row.file} (CLI ${row.version ?? 'of unknown version'})` : `${row.file} (not the Astryx CLI)`;
+  const others = rows.slice(1);
+  const othersNote = others.length > 0 ? ` Later on the search path: ${others.map(describe).join(', ')}.` : '';
+  const [first] = rows;
+  if (!first) {
+    return {
+      ...base,
+      status: 'info',
+      message: 'No `astryx` command on the search path, so `astryx` runs only through a package manager.',
+      fix: 'To run the CLI in any folder, install it for the computer: `npm i -g @astryxdesign/cli`.',
+    };
+  }
+  if (!first.astryx) {
+    return {
+      ...base,
+      status: 'warn',
+      message: `The first \`astryx\` on the search path, ${first.file}, is not the Astryx CLI, so \`astryx\` runs another program.${othersNote}`,
+      fix: 'Remove that program from the search path, or put the folder of the CLI installed for the computer before it.',
+    };
+  }
+  if (first.handsOff === false) {
+    return {
+      ...base,
+      status: 'warn',
+      message: `The first \`astryx\` on the search path, ${first.file}, runs CLI ${first.version ?? 'of unknown version'}, which predates the hand-off and answers every folder itself.${othersNote}`,
+      fix: `Replace it: \`${REPLACE_GLOBAL_COPY}\`.`,
+    };
+  }
+  return {
+    ...base,
+    status: 'pass',
+    message: `\`astryx\` runs ${describe(first)}.${othersNote}`,
+  };
+}
+
+/**
+ * The computer-level agent text (spec AST-081 FR4, FR8): turned off, present
+ * and equal to this release's rendering, present but different, or absent,
+ * for the files the chosen agents read. Always `info`: the text is optional,
+ * so it never warns or fails. A file Astryx did not write counts as absent,
+ * and a file a person edited is named; both are kept as they are.
  * @param {ComputerContext} ctx
  * @returns {DoctorCheck}
  */
 export function checkComputerAgentText(ctx) {
-  const files = ctx.agentText ?? inspectComputerAgentText();
+  const settings = ctx.agentTextSettings ?? computerAgentTextSettings();
   const base = {
     id: 'computer-agent-text',
     label: 'Computer-level agent text',
     status: /** @type {const} */ ('info'),
   };
+  if (!settings.install) {
+    return {
+      ...base,
+      message: 'The computer-level agent text is turned off (`astryx init --user --remove-agents`), so the CLI installed for the computer does not write it.',
+      fix: `To turn it back on, run \`${formatCliCommand('astryx init --user', ctx.cwd)}\`.`,
+    };
+  }
+  const files = ctx.agentText ?? inspectComputerAgentText({agents: settings.agents});
   const fix = `Run \`${formatCliCommand('astryx init --user', ctx.cwd)}\`.`;
   const ours = files.filter(f => f.state === 'current' || f.state === 'differs');
-  const kept = files
-    .filter(f => f.state === 'foreign')
-    .map(f => displayHomePath(f.path));
+  const listOf = (/** @type {string} */ state) => files.filter(f => f.state === state).map(f => displayHomePath(f.path));
+  const kept = listOf('foreign');
+  const edited = listOf('edited');
   const keptNote =
-    kept.length > 0
-      ? ` Not written by Astryx, so left as they are: ${kept.join(', ')}.`
-      : '';
+    (kept.length > 0 ? ` Not written by Astryx, so left as they are: ${kept.join(', ')}.` : '') +
+    (edited.length > 0 ? ` Edited since Astryx wrote them, so left as they are (delete one to get the current text): ${edited.join(', ')}.` : '');
+  const agentsNote = settings.agents ? ` Chosen agents: ${settings.agents.join(', ')}.` : '';
   if (ours.length === 0) {
     return {
       ...base,
-      message: `No computer-level agent text: agents outside a project with Astryx agent docs are not told how to use Astryx.${keptNote}`,
-      fix,
+      message: `No computer-level agent text: agents outside a project with Astryx agent docs are not told how to use Astryx.${agentsNote}${keptNote}`,
+      ...(edited.length === files.length ? {} : {fix}),
     };
   }
   if (files.every(f => f.state === 'current')) {
     return {
       ...base,
-      message: `The computer-level agent text matches this release: ${files.map(f => displayHomePath(f.path)).join(', ')}.`,
+      message: `The computer-level agent text matches this release: ${files.map(f => displayHomePath(f.path)).join(', ')}.${agentsNote}`,
     };
   }
-  const stale = files
-    .filter(f => f.state === 'differs' || f.state === 'absent')
-    .map(f => displayHomePath(f.path));
+  const stale = files.filter(f => f.state === 'differs' || f.state === 'absent').map(f => displayHomePath(f.path));
   return {
     ...base,
-    message: `The computer-level agent text differs from this release's: ${stale.join(', ')}.${keptNote}`,
-    fix,
+    message:
+      stale.length > 0
+        ? `The computer-level agent text differs from this release's: ${stale.join(', ')}.${agentsNote}${keptNote}`
+        : `The computer-level agent text matches this release where Astryx keeps it.${agentsNote}${keptNote}`,
+    ...(stale.length > 0 ? {fix} : {}),
   };
 }
 
@@ -1447,8 +1533,9 @@ export const COMPUTER_CHECKS = [
       coreDir: null,
       configPath: null,
     }),
-  checkAnsweringRelease,
+    checkAnsweringRelease,
   checkNewestRelease,
+  checkCliOnPath,
   checkComputerAgentText,
 ];
 
@@ -1462,10 +1549,11 @@ function runComputerChecks(cwd) {
   const ctx = {
     nodeVersion: process.versions.node,
     answeredBy: answeredBy(cwd),
-    latest: knownLatestRelease(),
-    agentText: inspectComputerAgentText(),
+        latest: knownLatestRelease(),
+    agentTextSettings: computerAgentTextSettings(),
     cwd,
   };
+  ctx.globalLag = globalLag({selfVersion: ctx.answeredBy.cli});
   const checks = COMPUTER_CHECKS.map(fn => fn(ctx));
   const summary = {pass: 0, warn: 0, fail: 0, info: 0};
   for (const c of checks) summary[c.status] += 1;
@@ -1662,13 +1750,16 @@ export async function runChecks(options = {}) {
       checks.push(await checkConfig(ctx));
     }
   }
+    const answered = answeredBy(cwd);
   checks.push(
     checkNewestRelease({
       nodeVersion: ctx.nodeVersion,
-      answeredBy: answeredBy(cwd),
+      answeredBy: answered,
       latest: knownLatestRelease(),
+      projectLag: projectLag({cwd, current: answered.cli}),
     }),
   );
+  checks.push(checkCliOnPath({nodeVersion: ctx.nodeVersion, answeredBy: answered, latest: null}));
   checks.push(await checkAuthoringDocs(ctx));
   checks.push(await checkCliDocs(ctx));
   checks.push(await checkDocsTree(ctx));

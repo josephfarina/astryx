@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import {
   findDeclaringPackage,
   findLockfile,
+  findProjectCli,
   findReadCore,
   lockedVersion,
   readReleaseFacts,
@@ -41,6 +42,29 @@ describe('findReadCore', () => {
     });
     installCore(root, '0.7.1');
     expect(findReadCore(root)?.version).toBe('0.7.1');
+  });
+
+  it("takes a workspace's own CLI package, at the root and inside it (b13)", () => {
+    const root = tempDir();
+    writeJson(path.join(root, 'package.json'), {name: 'repo', private: true});
+    writeJson(path.join(root, 'packages', 'core', 'package.json'), {
+      name: '@astryxdesign/core',
+      version: '0.7.4',
+    });
+    writeJson(path.join(root, 'packages', 'cli', 'package.json'), {
+      name: '@astryxdesign/cli',
+      version: '0.7.4',
+    });
+    const cliDir = path.join(root, 'packages', 'cli');
+    for (const dir of [root, cliDir, path.join(root, 'apps', 'site')]) {
+      fs.mkdirSync(dir, {recursive: true});
+      expect(findProjectCli(dir)).toEqual({dir: cliDir, version: '0.7.4'});
+    }
+    writeJson(path.join(root, 'packages', 'cli', 'package.json'), {
+      name: 'some-other-cli',
+      version: '1.0.0',
+    });
+    expect(findProjectCli(root)).toBeNull();
   });
 
   it("takes a workspace's own Core package", () => {

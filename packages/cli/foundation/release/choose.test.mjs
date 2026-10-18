@@ -290,14 +290,17 @@ describe('chooseRelease outside a project', () => {
     });
   });
 
-  it('falls back to the previous release when the current one is gone', () => {
+  it('falls back to the previous release when the current one is gone, unless the installed copy is newer', () => {
     const empty = tempDir('empty');
     const cacheDir = tempDir('cache');
     seedRelease(cacheDir, '0.7.1');
     updateGlobalState({current: '0.7.3', previous: '0.7.1'}, cacheDir);
     expect(
-      chooseRelease({cwd: empty, self: globalCopy('0.7.2'), cacheDir}),
+      chooseRelease({cwd: empty, self: globalCopy('0.7.0'), cacheDir}),
     ).toMatchObject({answer: 'release', version: '0.7.1'});
+    expect(
+      chooseRelease({cwd: empty, self: globalCopy('0.7.2'), cacheDir}),
+    ).toMatchObject({answer: 'self', version: '0.7.2'});
   });
 
   it('never switches a package runner copy', () => {

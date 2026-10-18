@@ -15,6 +15,10 @@
  *   npm's group outright (npm defers these signals and would keep this run's
  *   output pipes open), then ends the same way.
  *
+ * While npm works it renews the lock's owner record every 10 seconds
+ * (lock-lease.mjs), so a run on another computer that shares the cache knows
+ * the install is alive.
+ *
  * Not a command and takes no options of its own; its arguments come only
  * from `runNpm`.
  *
@@ -25,6 +29,8 @@
 
 import {spawn} from 'node:child_process';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
+import {LEASE_RENEW_MS, renewLock} from './lock-lease.mjs';
 
 const [timeoutArg, pidFile, command, ...args] = process.argv.slice(2);
 const timeoutMs = Number(timeoutArg);
@@ -66,6 +72,13 @@ const watch = setInterval(() => {
     process.exit(1);
   }
 }, 500);
+
+// The lock beside the pid file is renewed while npm works, so a run on
+// another computer sharing the cache knows its holder is alive.
+const lease = pidFile
+  ? setInterval(() => renewLock(path.dirname(pidFile)), LEASE_RENEW_MS)
+  : null;
+lease?.unref();
 
 for (const signal of /** @type {NodeJS.Signals[]} */ ([
   'SIGINT',

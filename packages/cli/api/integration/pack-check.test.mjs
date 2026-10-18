@@ -750,6 +750,38 @@ describe('integrationPackCheck', () => {
     );
   });
 
+  it('checks the export a component doc names when its file is named otherwise', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      `${JSON.stringify({
+        name: '@acme/widgets',
+        version: '1.0.0',
+        files: ['astryx.integration.mjs', 'components'],
+        exports: {'./components/Slides': './components/Slides.tsx'},
+      })}\n`,
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'astryx.integration.mjs'),
+      "export default {components: './components'};\n",
+    );
+    fs.mkdirSync(path.join(tmpDir, 'components'));
+    // Slides.tsx exports AcmeCarousel and nothing named Slides.
+    fs.writeFileSync(
+      path.join(tmpDir, 'components', 'Slides.tsx'),
+      'export function AcmeCarousel() { return null; }\n',
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'components', 'Slides.doc.mjs'),
+      "export default {type: 'component', name: 'AcmeCarousel', import: '@acme/widgets/components/Slides', description: 'x', props: []};\n",
+    );
+
+    const result = await integrationPackCheck({cwd: tmpDir});
+    expect(result.data.packable).toBe(true);
+    expect(result.data.contributions.packed.components).toEqual([
+      'AcmeCarousel',
+    ]);
+  });
+
   it('passes a generated component through its exact packed export', async () => {
     fs.writeFileSync(
       path.join(tmpDir, 'package.json'),
@@ -805,6 +837,86 @@ describe('integrationPackCheck', () => {
     expect(result.data.issues).toContainEqual(
       expect.objectContaining({code: 'component_export_missing'}),
     );
+  });
+
+  it('does not count a type-only re-export as the component', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      `${JSON.stringify({
+        name: '@acme/widgets',
+        version: '1.0.0',
+        files: ['astryx.integration.mjs', 'src'],
+        exports: {'.': './src/index.ts'},
+      })}\n`,
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'astryx.integration.mjs'),
+      "export default {components: './src'};\n",
+    );
+    fs.mkdirSync(path.join(tmpDir, 'src'));
+    fs.writeFileSync(
+      path.join(tmpDir, 'src', 'index.ts'),
+      "export type {AcmeWidget} from './AcmeWidget';\n",
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'src', 'AcmeWidget.tsx'),
+      'export function AcmeWidget() { return null; }\n',
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'src', 'AcmeWidget.doc.mjs'),
+      "export default {type: 'component', name: 'AcmeWidget', import: '@acme/widgets', description: 'Widget.', props: []};\n",
+    );
+
+    const result = await integrationPackCheck({cwd: tmpDir});
+
+    expect(result.data.issues).toContainEqual(
+      expect.objectContaining({code: 'component_export_missing'}),
+    );
+  });
+
+  it('follows a re-export of a folder to its index file', async () => {
+    // `./primitives` names a folder: TypeScript and bundlers load its index file.
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      `${JSON.stringify({
+        name: '@acme/widgets',
+        version: '1.0.0',
+        files: ['astryx.integration.mjs', 'src'],
+        exports: {'.': './src/index.ts'},
+      })}\n`,
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'astryx.integration.mjs'),
+      "export default {components: './src'};\n",
+    );
+    const primitives = path.join(tmpDir, 'src', 'primitives');
+    fs.mkdirSync(primitives, {recursive: true});
+    fs.writeFileSync(
+      path.join(tmpDir, 'src', 'index.ts'),
+      "export * from './primitives';\n",
+    );
+    fs.writeFileSync(
+      path.join(primitives, 'index.ts'),
+      "export * from './AcmeWidget';\n",
+    );
+    fs.writeFileSync(
+      path.join(primitives, 'AcmeWidget.tsx'),
+      'export function AcmeWidget() { return null; }\n',
+    );
+    fs.writeFileSync(
+      path.join(primitives, 'AcmeWidget.doc.mjs'),
+      "export default {type: 'component', name: 'AcmeWidget', import: '@acme/widgets', description: 'Widget.', props: []};\n",
+    );
+
+    const result = await integrationPackCheck({cwd: tmpDir});
+
+    expect(result.data.issues).not.toContainEqual(
+      expect.objectContaining({code: 'component_export_missing'}),
+    );
+    expect(
+      result.data.packable,
+      JSON.stringify(result.data.issues, null, 2),
+    ).toBe(true);
   });
 
   it('fails when packed template source is hidden by package exports', async () => {

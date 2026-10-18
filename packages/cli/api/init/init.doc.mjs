@@ -23,8 +23,8 @@ export const doc = {
     'guidance instead (the theme feature also writes the annotated theme template). ' +
     'With `removeAgents` it removes the managed agent-docs block instead of installing. ' +
     'Outside a project it writes the same files but prints no getting-started steps and no step that adds a theme to an app, since those set up a project the folder does not have. ' +
-    "With `user` it sets up the computer instead of the folder: it writes the computer-level agent text, one skill file at `~/.agents/skills/astryx/SKILL.md` and `~/.claude/skills/astryx/SKILL.md` that tells agents anywhere on the computer how to use Astryx and to follow a project's own agent docs inside that project; with `user` and `removeAgents` it removes those two files. " +
-    'Nothing else writes that text: not installing the CLI, not project setup, not upgrade.',
+        "With `user` it sets up the computer instead of the folder: it writes the computer-level agent text, one skill file at `~/.agents/skills/astryx/SKILL.md` and `~/.claude/skills/astryx/SKILL.md` (plus the skill folder of Continue, Kiro, or Windsurf when that tool is installed) that tells agents anywhere on the computer how to use Astryx and to follow a project's own agent docs inside that project, only the chosen agents' files with `agent`; with `user` and `removeAgents` it removes those files and records that the text is turned off. " +
+    'The CLI installed for the computer keeps that text current in the background and follows the recorded choice; package install scripts, project setup, and upgrade never write it.',
   importPath: '@astryxdesign/cli/api',
   signature:
     'init(options?: InitOptions, ctx?: {cwd?: string}): Promise<InitRunResponse | InitRemoveResponse | InitUserResponse>',
@@ -51,16 +51,17 @@ export const doc = {
       name: 'options.user',
       type: 'boolean',
       description:
-        "Write or refresh the computer-level agent text (`~/.agents/skills/astryx/SKILL.md` and `~/.claude/skills/astryx/SKILL.md`, in the current user's home folder) instead of setting up `ctx.cwd`. " +
+        "Write or refresh the computer-level agent text (`~/.agents/skills/astryx/SKILL.md` and `~/.claude/skills/astryx/SKILL.md`, plus the skill folder of Continue, Kiro, or Windsurf when that tool is installed, in the current user's home folder) instead of setting up `ctx.cwd`. " +
         'The text uses the `astryx` command, or the command of the host that started the run; an integration\'s `cliCommand` never applies. ' +
-        'A file without the Astryx markers, or a symlink, is kept as it is. When no `astryx` command on the computer runs the Astryx CLI, the text is still written and the receipt carries a warning to install the CLI for the computer (`npm i -g @astryxdesign/cli`). ' +
-        'Cannot be combined with `features`, `all`, `agent`, or `agentDocsPath`.',
+                'Records the choice (every agent, the `agent` list, or, with `removeAgents`, turned off) in `astryx/settings.json` in the per-user configuration folder. ' +
+        'A file without the Astryx markers, one edited since Astryx wrote it, or a symlink, is kept as it is. When no `astryx` command on the computer runs the Astryx CLI, the text is still written and the receipt carries a warning to install the CLI for the computer (`npm i -g @astryxdesign/cli`). ' +
+        'Cannot be combined with `features`, `all`, or `agentDocsPath`, nor `agent` with `removeAgents`.',
     },
     {
       name: 'options.agent',
       type: 'string',
       description:
-        'Agent preset: claude, cursor, codex, hermes, muse, all. Used only when the agents feature runs.',
+        'Agent preset: claude, cursor, codex, hermes, muse, all. Used only when the agents feature runs. With `user`, a comma-separated list of the agents the computer-level text is for: claude, codex, gemini, copilot, cursor, opencode, crush, qwen, cline, amp, goose, roo, zed, continue, kiro, windsurf.',
     },
     {
       name: 'options.agentDocsPath',
@@ -94,17 +95,17 @@ export const doc = {
     {
       type: 'init.user',
       description:
-        'The computer-level agent text receipt, returned when `user` is set: `data.files`, one `{path, action}` per file (`~/.agents/skills/astryx/SKILL.md`, then `~/.claude/skills/astryx/SKILL.md`; action `written` | `unchanged` | `removed` | `absent` | `kept`), `data.command` (the command the text names), and `data.warnings`.',
+        'The computer-level agent text receipt, returned when `user` is set: `data.files`, one `{path, action, reason?}` per file acted on (`~/.agents/skills/astryx/SKILL.md`, then `~/.claude/skills/astryx/SKILL.md`; action `written` | `unchanged` | `removed` | `absent` | `kept`; `reason` on `kept`: `edited` | `not-astryx`), `data.agents` (the chosen agent names, or null for every agent), `data.command` (the command the text names), and `data.warnings`.',
     },
   ],
   throws: [
     {
       code: 'ERR_INVALID_ARGUMENT',
-      when: '--remove-agents or --user is combined with --features, --all, --agent, or --agent-docs-path; or --all is combined with --features',
+            when: '--remove-agents is combined with --features, --all, --agent, or --agent-docs-path; --user is combined with --features, --all, or --agent-docs-path; --user --remove-agents is combined with --agent; or --all is combined with --features',
     },
     {
       code: 'ERR_UNKNOWN_AGENT',
-      when: 'the agents feature runs (default mode, features includes agents, or all) and `agent` is not one of claude, cursor, codex, hermes, muse, all',
+            when: 'the agents feature runs (default mode, features includes agents, or all) and `agent` is not one of claude, cursor, codex, hermes, muse, all; or, with `user`, `agent` names an agent other than claude, codex, gemini, copilot, cursor, opencode, crush, qwen, cline, amp, goose, roo, zed, continue, kiro, windsurf',
     },
     {
       code: 'ERR_UNKNOWN_FEATURE',
@@ -127,7 +128,8 @@ export const doc = {
     {label: 'Default setup', code: 'const r = await init();'},
     {label: 'All features', code: 'await init({all: true});'},
     {label: 'Remove agent docs', code: 'await init({removeAgents: true});'},
-    {label: 'Agent text for the whole computer', code: 'const r = await init({user: true});\nfor (const w of r.data.warnings) console.warn(w);'},
+        {label: 'Agent text for the whole computer', code: 'const r = await init({user: true});\nfor (const w of r.data.warnings) console.warn(w);'},
+    {label: 'Agent text for some agents only', code: "await init({user: true, agent: 'claude,codex'});"},
   ],
   command: 'init',
   related: ['doctor', 'upgrade', 'build', 'themeTemplate'],

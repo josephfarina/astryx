@@ -36,7 +36,8 @@
  * What `init --user` did with one file of the computer-level agent text.
  * `written`: created or refreshed. `unchanged`: already this release's text.
  * `removed`: deleted (with `--remove-agents`). `absent`: nothing to remove.
- * `kept`: a file Astryx did not write (no Astryx markers) or a symlink, left as it is.
+ * `kept`: a file left as it is, because a person edited it or Astryx did not
+ * write it (see `reason`).
  * @typedef {'written' | 'unchanged' | 'removed' | 'absent' | 'kept'} InitUserAction
  */
 
@@ -44,11 +45,15 @@
  * @typedef {object} InitUserFile
  * @property {string} path Absolute path of the file in the home folder.
  * @property {InitUserAction} action
+ * @property {'edited' | 'not-astryx'} [reason] Only on `kept`: `edited`, the
+ *   text no longer matches the hash Astryx recorded in it; `not-astryx`, it
+ *   has no Astryx markers or is a symlink.
  */
 
 /**
  * @typedef {object} InitUserData
- * @property {InitUserFile[]} files `~/.agents/skills/astryx/SKILL.md`, then `~/.claude/skills/astryx/SKILL.md`.
+ * @property {InitUserFile[]} files One row per file acted on: `~/.agents/skills/astryx/SKILL.md`, then `~/.claude/skills/astryx/SKILL.md`, then any Continue, Kiro, or Windsurf copy. With `agents`, only the files those agents read, plus any unedited Astryx file no chosen agent reads, `removed`.
+ * @property {string[] | null} agents The agent names chosen with `--agent`, or `null` for every agent. Recorded in the settings file, so the global copy keeps the same files.
  * @property {string} command The command the text tells agents to run: `astryx`, or the host's command when a host started the run.
  * @property {string[]} warnings Non-fatal notes, such as no `astryx` on the computer that runs the Astryx CLI.
  */
@@ -65,8 +70,8 @@
  * @property {string} [features] Comma-separated features to install (agents, theme, template).
  * @property {boolean} [all] Install all features.
  * @property {boolean} [removeAgents] Remove the managed agent-docs block instead of installing; with `user`, remove the computer-level agent text.
- * @property {boolean} [user] Write the computer-level agent text (`~/.agents/skills/astryx/SKILL.md` and `~/.claude/skills/astryx/SKILL.md`) instead of setting up the folder.
- * @property {string} [agent] Agent preset: claude, cursor, codex, hermes, muse, all.
+ * @property {boolean} [user] Write the computer-level agent text (`~/.agents/skills/astryx/SKILL.md`, `~/.claude/skills/astryx/SKILL.md`, and the skill folders of installed single-folder tools) instead of setting up the folder.
+ * @property {string} [agent] Agent preset: claude, cursor, codex, hermes, muse, all. With `user`, a comma-separated list of claude, codex, gemini, copilot, cursor, opencode, crush, qwen, cline, amp, goose, roo, zed, continue, kiro, windsurf.
  * @property {string | string[]} [agentDocsPath] Explicit agent-docs file path(s).
  * @property {string} [templateName] Scaffold a named page template (programmatic only; the CLI never sets it).
  */

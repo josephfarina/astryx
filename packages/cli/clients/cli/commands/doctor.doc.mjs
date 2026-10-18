@@ -18,10 +18,10 @@ export const doc = {
     'Runs read-only project health diagnostics by default: Node version, @astryxdesign/core ' +
     'install and version alignment, theme packages, generated app themes when present, earlier copied-theme migration, config, integrations (every one astryx.config names must load, linked without a config entry, ' +
     'provider identity, contribution issues), agent docs, core peer dependencies, package manager, ' +
-    "the docs the CLI reads, and the newest release the computer knows of (info only). It writes nothing, but loading astryx.config runs that file's code. " +
+    "the docs the CLI reads, the newest release the computer knows of, with the install and upgrade commands when the project's release is older, and every `astryx` command on the search path, warning when the first one is not the Astryx CLI or predates the hand-off. It writes nothing, but loading astryx.config runs that file's code. " +
     'The `integration` subcommands provide authoring checks for one integration package. ' +
     'Outside a project it checks the computer instead: the Node version, the release that answered, ' +
-    'the newest release this computer knows of, and whether the computer-level agent text (`astryx init --user`) is present and matches this release (info only). ' +
+    'the newest release this computer knows of, warning when the CLI installed for the computer cannot move to it and naming the fix, the `astryx` commands on the search path, and whether the computer-level agent text (`astryx init --user`) is present, matches this release, was edited, or is turned off (info only). ' +
     'It never fails a check because the folder has no project.',
   fn: 'doctor',
   subcommands: ['integration'],

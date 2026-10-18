@@ -18,7 +18,6 @@
 
 import {createHash} from 'node:crypto';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import {Project} from '../../foundation/config/project.mjs';
 import {
@@ -29,6 +28,7 @@ import {loadDocs} from '../../foundation/discovery/component-loader.mjs';
 import {collectIdentities} from '../../foundation/integrations/contribution-inventory.mjs';
 import {detectPackageManager} from '../../foundation/env/package-manager.mjs';
 import {assertWithin} from '../../foundation/fs/path-safety.mjs';
+import {userCacheDir} from '../../foundation/env/user-dirs.mjs';
 import {parseDiscoverCatalog} from '../../authoring/discover/parse.mjs';
 import {AstryxError} from '../error.mjs';
 import {ERROR_CODES} from '../../foundation/response/error-codes.mjs';
@@ -250,21 +250,7 @@ export function addCommand(project) {
  * @returns {string}
  */
 export function defaultCacheDir() {
-  const home = os.homedir();
-  if (process.platform === 'win32') {
-    return path.join(
-      process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'),
-      'astryx',
-      'Cache',
-    );
-  }
-  if (process.platform === 'darwin') {
-    return path.join(home, 'Library', 'Caches', 'astryx');
-  }
-  return path.join(
-    process.env.XDG_CACHE_HOME || path.join(home, '.cache'),
-    'astryx',
-  );
+  return userCacheDir();
 }
 
 /**

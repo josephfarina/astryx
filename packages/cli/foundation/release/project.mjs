@@ -112,13 +112,29 @@ export function findReadCore(startDir) {
 }
 
 /**
- * The CLI the folder installs, found the way reads find installed packages.
+ * The CLI the folder installs, found the way reads find installed packages;
+ * else a workspace's own CLI package: the folder itself when it is the CLI
+ * package, or a `packages/cli` that is, in the folder or one of the five
+ * folders above it (spec AST-081, a folder's project). A repository that
+ * builds the CLI and Core side by side answers with its own CLI.
  * @param {string} startDir
  * @returns {InstalledAstryxPackage | null}
  */
 export function findProjectCli(startDir) {
-  const dir = findInstalledPackage(path.resolve(startDir), CLI_PACKAGE_NAME);
-  return dir ? installedAs(dir, CLI_PACKAGE_NAME) : null;
+  const start = path.resolve(startDir);
+  const dir = findInstalledPackage(start, CLI_PACKAGE_NAME);
+  if (dir) return installedAs(dir, CLI_PACKAGE_NAME);
+  let at = start;
+  for (let i = 0; i < 6; i++) {
+    const own =
+      installedAs(at, CLI_PACKAGE_NAME) ??
+      installedAs(path.join(at, 'packages', 'cli'), CLI_PACKAGE_NAME);
+    if (own) return own;
+    const parent = path.dirname(at);
+    if (parent === at) break;
+    at = parent;
+  }
+  return null;
 }
 
 /** Version-control metadata that marks a repository's root. */

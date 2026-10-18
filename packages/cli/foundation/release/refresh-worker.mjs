@@ -10,7 +10,8 @@
  *
  * @input  argv[2]: the cache directory
  * @output the updated global state on disk
- * @position foundation/release — the only detached process the CLI starts.
+ * @position foundation/release — one of the two detached processes the CLI
+ *   starts; the other is agent-text-worker.mjs.
  */
 
 import {runCheck} from './global-state.mjs';

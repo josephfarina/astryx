@@ -27,6 +27,8 @@
  * files; an internal callback lets the CLI make only the process status fail.
  * Human progress is emitted through the shared `logger` (silent by default), so
  * the CLI keeps its exact output while a programmatic caller stays quiet.
+ * Every output, explicit or beside the theme file, stays inside `cwd`
+ * (`ERR_PATH_TRAVERSAL` otherwise), in check mode too.
  *
  * The installed `@astryxdesign/core` is an independently versioned optional
  * peer, so it can be older than the CLI. A theme that uses only baseline
@@ -275,6 +277,25 @@ function realOrSelf(file) {
 }
 
 /**
+ * `target` spelled through real directories: the deepest ancestor that exists
+ * is resolved through its symlinks, and the missing rest is appended as given.
+ * @param {string} target absolute path
+ * @returns {string}
+ */
+function realLocation(target) {
+  /** @type {string[]} */
+  const missing = [];
+  let existing = target;
+  while (!fs.existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    missing.unshift(path.basename(existing));
+    existing = parent;
+  }
+  return path.join(realOrSelf(existing), ...missing);
+}
+
+/**
  * The Core the project at `cwd` installed, when it differs from the one the
  * CLI's own import found and loads. The app's `<Theme>` runs on the app's
  * Core, so building with it keeps the CSS identical; and a CLI run one-off
@@ -510,6 +531,47 @@ function checkedBuildOutputs(writes, cwd) {
   return writes
     .filter(write => !write.allowMissingInCheck || fs.existsSync(write.dest))
     .map(write => path.relative(cwd, write.dest));
+}
+
+/** Remedies that end a confinement error, by where the output path came from. */
+const OUT_REMEDY = 'Pass an --out path inside it.';
+const SOURCE_REMEDY =
+  'Without --out the outputs go beside the theme file, so run the build from a directory that contains the theme file, or pass an --out path inside the working directory.';
+const FAMILY_REMEDY =
+  "Family outputs go beside the family's root theme file, so run the build from a directory that contains it.";
+
+/**
+ * Refuse an output outside `root`: every write is confined, whether `out` names
+ * the path or it defaults to the theme file's directory (architecture:cli-surface
+ * INV10). Both sides are compared by real location, so an absolute path that
+ * reaches the working directory through a symlink is inside it, and a symlink
+ * inside it that leads elsewhere is not.
+ * @param {string} dest absolute output path
+ * @param {string} root the directory writes stay inside: the working directory
+ * @param {string} remedy what to do instead; ends the error message
+ * @param {string} [shown] the path as the caller wrote it, for the message
+ */
+function confineOutput(dest, root, remedy, shown = dest) {
+  try {
+    assertWithin(realLocation(dest), realOrSelf(path.resolve(root)), {
+      allowAbsolute: true,
+      label: 'output path',
+    });
+  } catch (err) {
+    if (!(err instanceof PathSafetyError)) throw err;
+    throw new AstryxError(
+      err.code === ERROR_CODES.ERR_PATH_TRAVERSAL
+        ? `Output path "${shown}" is outside the working directory (${root}). ${remedy}`
+        : err.message,
+      undefined,
+      ERROR_CODES.ERR_PATH_TRAVERSAL,
+    );
+  }
+}
+
+/** @param {Array<{dest: string}>} writes @param {string} root @param {string} remedy */
+function confineOutputs(writes, root, remedy) {
+  for (const write of writes) confineOutput(write.dest, root, remedy);
 }
 
 /** @param {Array<{dest: string, content: string}>} writes */
@@ -2350,9 +2412,10 @@ function validateHeadingTypeAugmentationSupport(themeDef) {
  * `logger` (silent by default).
  *
  * @param {string} file - Theme file path, resolved against `cwd`.
- * @param {{out?: string, check?: boolean, iconsSpecifier?: string, __prepareFamily?: boolean, __familyLoader?: any, __familyInterception?: any, __onPrivateVarError?: () => void}} [options] -
+ * @param {{out?: string, check?: boolean, iconsSpecifier?: string, __prepareFamily?: boolean, __familyLoader?: any, __familyInterception?: any, __onPrivateVarError?: () => void, __writeRoot?: string}} [options] -
  *   `out` overrides the output CSS path; `check` compares against on-disk outputs
- *   instead of writing. `iconsSpecifier` overrides the icon registry import
+ *   instead of writing. `__writeRoot` replaces `cwd` as the directory every
+ *   output must stay inside, for a CLI-internal scratch build. `iconsSpecifier` overrides the icon registry import
  *   specifier in the generated module (e.g. `./icons.mjs`); when omitted, the
  *   direct registry specifiers from the theme source are emitted unchanged.
  * @param {{cwd?: string}} [ctx]
@@ -2797,25 +2860,14 @@ async function themeBuildInternal(
   // Derive the default CSS name from the theme name so .css/.js/.d.ts
   // share one scheme; an explicit --out still wins.
   const baseName = themeDef.name;
+  // Every write stays inside cwd. A CLI-internal caller that renders into a
+  // scratch directory it creates and removes names that directory instead.
+  const writeRoot = options.__writeRoot ?? cwd;
   let outPath;
   if (options.out) {
+    // Relative or absolute, the explicit output stays inside the write root.
     outPath = path.resolve(cwd, options.out);
-    // Guard: relative paths must not escape cwd via `../`. Absolute paths are
-    // trusted (the user explicitly controls where output goes, like gcc -o).
-    if (!path.isAbsolute(options.out)) {
-      try {
-        assertWithin(options.out, cwd, {label: 'output path'});
-      } catch (err) {
-        if (err instanceof PathSafetyError) {
-          throw new AstryxError(
-            err.message,
-            undefined,
-            ERROR_CODES.ERR_PATH_TRAVERSAL,
-          );
-        }
-        throw err;
-      }
-    }
+    confineOutput(outPath, writeRoot, OUT_REMEDY, options.out);
   } else {
     outPath = path.join(path.dirname(filePath), `${baseName}.css`);
   }
@@ -2910,6 +2962,11 @@ async function themeBuildInternal(
   if (variantDtsPath && variantContent) {
     writes.push({dest: variantDtsPath, content: variantContent});
   }
+
+  // Every output stays inside cwd, including the defaults beside the theme
+  // file. Check mode refuses the same paths, so it never passes outputs that a
+  // build would refuse to write.
+  confineOutputs(writes, writeRoot, options.out ? OUT_REMEDY : SOURCE_REMEDY);
 
   // Check mode: compare generated content against what's on disk instead of
   // writing. A file is "stale" if it's missing or its content differs once the
@@ -3455,6 +3512,8 @@ export async function themeBuildFamily(
     js: path.relative(cwd, jsPath),
     dts: path.relative(cwd, dtsPath),
   };
+  // The family's outputs stay inside cwd too, in check mode as well.
+  confineOutputs(writes, cwd, FAMILY_REMEDY);
   if (options.check) {
     const stale = staleBuildOutputs(writes, cwd);
     const upToDate = stale.length === 0;

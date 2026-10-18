@@ -2,35 +2,51 @@
 
 /**
  * @file The computer-level agent text (spec AST-081 FR8): one skill file,
- * written to the two folders coding agents read skills from in the home
- * folder, so an agent working anywhere on the computer knows how to use
- * Astryx.
+ * written to the skill folders coding agents read in the home folder, so an
+ * agent working anywhere on the computer knows how to use Astryx.
  *
- * - `~/.agents/skills/astryx/SKILL.md`
- * - `~/.claude/skills/astryx/SKILL.md`
+ * `COMPUTER_AGENT_FILES` names each agent and the file it reads; agents that
+ * share a file share one write:
+ *
+ * - `claude` reads `~/.claude/skills/astryx/SKILL.md`
+ * - `codex`, `gemini`, `copilot`, `cursor`, `opencode`, and most other agent
+ *   tools read `~/.agents/skills/astryx/SKILL.md`
+ * - `continue`, `kiro`, and `windsurf` read only their own folder, written
+ *   for every agent only when that tool's folder exists
+ *
+ * Tools that read both shared folders list the skill once; no always-on
+ * instructions file is written, since no tool merges one with a skill.
  *
  * The body comes from the same source as a project's agent-docs block
  * (`generateCompressedIndex`, scope `computer`): no version, no component
  * count, no integrations, and a lead line that defers to a project's own agent
  * docs. It keeps the Astryx markers, which is how a file Astryx wrote is told
- * apart from one a person wrote: a file without them is never changed, and a
- * symlinked file is never followed.
+ * apart from one a person wrote, and records, inside them, a hash of the
+ * file's text, which is how a file a person edited is told apart from an
+ * older rendering. A file without the markers, an edited file, and a
+ * symlinked file are never changed.
  *
- * Only `astryx init --user` writes or removes these files (FR7). This module
- * is deliberately separate from the project agent-docs root resolution: it
- * names two fixed files in the home folder and nothing else.
+ * `astryx init --user` writes and removes these files, and the global copy's
+ * background step (`foundation/release/agent-text-worker.mjs`) keeps them on
+ * its release (FR7, FR8). Both honor the person's choices in the settings file
+ * (`foundation/env/user-settings.mjs`). This module is deliberately separate
+ * from the project agent-docs root resolution: it names fixed files in the
+ * home folder and nothing else.
  *
- * @input  the home folder, the running release, the host's door (if any)
+ * @input  the home folder, the running release, the host's door (if any),
+ *   the chosen agents
  * @output the rendered text, its state on disk, and the write/remove receipt rows
- * @position foundation/agent-docs — read by `init --user` and by `doctor`
- *   outside a project.
+ * @position foundation/agent-docs — read by `init --user`, by the background
+ *   step, and by `doctor`.
  */
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {cliDoor} from '../env/cli-command.mjs';
+import {astryxCommandsOnSearchPath} from '../env/search-path.mjs';
 import {generateCompressedIndex} from './agent-docs.mjs';
+import {createHash} from 'node:crypto';
 import {MARKER_START, MARKER_END} from './agent-doc-state.mjs';
 
 /** The command the computer-level text uses when no host door is set. */
@@ -39,17 +55,67 @@ export const COMPUTER_COMMAND = 'astryx';
 /** The install step for the CLI copy the computer-level text relies on. */
 export const COMPUTER_INSTALL_STEP = 'npm i -g @astryxdesign/cli';
 
-/** The CLI package whose bin the text's command must reach. */
-const CLI_PACKAGE = '@astryxdesign/cli';
+const SHARED_SKILL = path.join('.agents', 'skills', 'astryx', 'SKILL.md');
+const CLAUDE_SKILL = path.join('.claude', 'skills', 'astryx', 'SKILL.md');
+const CONTINUE_SKILL = path.join('.continue', 'skills', 'astryx', 'SKILL.md');
+const KIRO_SKILL = path.join('.kiro', 'skills', 'astryx', 'SKILL.md');
+const WINDSURF_SKILL = path.join(
+  '.codeium',
+  'windsurf',
+  'skills',
+  'astryx',
+  'SKILL.md',
+);
 
 /**
- * The skill folders, relative to the home folder, in the order they are
- * written and reported.
- * @type {readonly string[]}
+ * Each agent name `astryx init --user --agent` accepts, and the file, relative
+ * to the home folder, that agent reads. Most agent tools read the shared
+ * `.agents/skills` folder; Claude Code reads only its own; a few tools read
+ * only their own folder, which no other tool reads, so writing it adds no
+ * second copy anywhere.
+ * @type {Readonly<Record<string, string>>}
+ */
+export const COMPUTER_AGENT_FILES = Object.freeze(
+  // Pairs, not an object literal: some agent names are also style property
+  // names, and these are file paths, not styles.
+  Object.fromEntries([
+    ['claude', CLAUDE_SKILL],
+    ...[
+      'codex',
+      'gemini',
+      'copilot',
+      'cursor',
+      'opencode',
+      'crush',
+      'qwen',
+      'cline',
+      'amp',
+      'goose',
+      'roo',
+      'zed',
+    ].map(name => [name, SHARED_SKILL]),
+    ['continue', CONTINUE_SKILL],
+    ['kiro', KIRO_SKILL],
+    ['windsurf', WINDSURF_SKILL],
+  ]),
+);
+
+/** The agent names, in the order the docs list them. */
+export const COMPUTER_AGENTS = Object.freeze(Object.keys(COMPUTER_AGENT_FILES));
+
+/**
+ * Every file, relative to the home folder, in the order they are written and
+ * reported, with the folder of the one tool that reads it when only that tool
+ * does. Without a chosen agent list, such a file is written only when its
+ * tool's folder exists in the home folder.
+ * @type {ReadonlyArray<{file: string, toolFolder: string | null}>}
  */
 const SKILL_FILES = Object.freeze([
-  path.join('.agents', 'skills', 'astryx', 'SKILL.md'),
-  path.join('.claude', 'skills', 'astryx', 'SKILL.md'),
+  {file: SHARED_SKILL, toolFolder: null},
+  {file: CLAUDE_SKILL, toolFolder: null},
+  {file: CONTINUE_SKILL, toolFolder: '.continue'},
+  {file: KIRO_SKILL, toolFolder: '.kiro'},
+  {file: WINDSURF_SKILL, toolFolder: path.join('.codeium', 'windsurf')},
 ]);
 
 /**
@@ -59,11 +125,6 @@ const SKILL_DESCRIPTION =
   'Build and change UI with the Astryx design system: components, page templates, blocks, themes, and tokens from @astryxdesign packages. ' +
   'Use when a task mentions Astryx or @astryxdesign, or builds UI in a project that uses them.';
 
-/**
- * The absolute paths of the computer-level agent text.
- * @param {string} [home] the home folder; defaults to the current user's
- * @returns {string[]}
- */
 /**
  * A home-folder path as a person reads it: `~/.claude/skills/astryx/SKILL.md`.
  * @param {string} file
@@ -78,10 +139,41 @@ export function displayHomePath(file, home = os.homedir()) {
 }
 
 /**
- * The computer-level text's files.
+ * The absolute paths of the computer-level text the chosen agents read: with
+ * no list, the shared and Claude Code files, and each single-tool file whose
+ * tool's folder exists; with a list, exactly the files those agents read.
+ * @param {string} [home] the home folder; defaults to the current user's
+ * @param {readonly string[] | null} [agents] agent names; `null` for every agent
+ * @returns {string[]}
  */
-export function computerAgentTextPaths(home = os.homedir()) {
-  return SKILL_FILES.map(rel => path.join(home, rel));
+export function computerAgentTextPaths(home = os.homedir(), agents = null) {
+  const wanted = agents
+    ? new Set(agents.map(name => COMPUTER_AGENT_FILES[name]).filter(Boolean))
+    : null;
+  return SKILL_FILES.filter(({file, toolFolder}) =>
+    wanted
+      ? wanted.has(file)
+      : !toolFolder || fs.existsSync(path.join(home, toolFolder)),
+  ).map(({file}) => path.join(home, file));
+}
+
+/**
+ * Every file Astryx may write for the computer-level text, whether or not
+ * any chosen agent reads it.
+ * @param {string} [home]
+ * @returns {string[]}
+ */
+export function allComputerAgentTextPaths(home = os.homedir()) {
+  return SKILL_FILES.map(({file}) => path.join(home, file));
+}
+
+/**
+ * The names in `agents` that are not agent names.
+ * @param {readonly string[]} agents
+ * @returns {string[]}
+ */
+export function unknownComputerAgents(agents) {
+  return agents.filter(name => !Object.hasOwn(COMPUTER_AGENT_FILES, name));
 }
 
 /**
@@ -106,27 +198,70 @@ export function renderComputerAgentText({
     scope: 'computer',
     invocation: command,
   });
-  return [
-    '---',
-    'name: astryx',
-    // Quoted: the description holds `: `, which strict YAML parsers read as a
-    // second mapping, and an agent tool with one drops the whole skill.
-    `description: ${JSON.stringify(SKILL_DESCRIPTION)}`,
-    '---',
-    '',
-    body,
-    '',
-  ].join('\n');
+  return withHash(
+    [
+      '---',
+      'name: astryx',
+      // Quoted: the description holds `: `, which strict YAML parsers read as a
+      // second mapping, and an agent tool with one drops the whole skill.
+      `description: ${JSON.stringify(SKILL_DESCRIPTION)}`,
+      '---',
+      '',
+      body,
+      '',
+    ].join('\n'),
+  );
+}
+
+/** The line, right after the start marker, that records the file's hash. */
+const HASH_LINE = /^<!-- astryx-managed sha256:([0-9a-f]{64}) -->\n/mu;
+
+/**
+ * The sha256 of a file's text without its hash line.
+ * @param {string} text
+ * @returns {string}
+ */
+function hashOf(text) {
+  return createHash('sha256').update(text).digest('hex');
+}
+
+/**
+ * Insert the hash line after the start marker.
+ * @param {string} text a rendering without a hash line
+ * @returns {string}
+ */
+function withHash(text) {
+  const at = text.indexOf(MARKER_START);
+  if (at === -1) return text;
+  const lineEnd = text.indexOf('\n', at);
+  const cut = lineEnd === -1 ? text.length : lineEnd + 1;
+  return `${text.slice(0, cut)}<!-- astryx-managed sha256:${hashOf(text)} -->\n${text.slice(cut)}`;
+}
+
+/**
+ * Whether a file with the markers is unedited: it carries a hash line, and
+ * the hash matches the rest of its text.
+ * @param {string} content
+ * @returns {boolean}
+ */
+function isUnedited(content) {
+  const match = HASH_LINE.exec(content);
+  if (!match) return false;
+  return hashOf(content.replace(HASH_LINE, '')) === match[1];
 }
 
 /**
  * What is at one path of the computer-level text.
  * - `absent`: nothing there.
  * - `current`: an Astryx file with exactly this release's rendering.
- * - `differs`: an Astryx file (it has the markers) with other content.
+ * - `differs`: an unedited Astryx file (its recorded hash matches) with
+ *   another rendering, such as another release's.
+ * - `edited`: an Astryx file (it has the markers) whose text no longer
+ *   matches its recorded hash, or that records none: a person changed it.
+ *   Never changed.
  * - `foreign`: a file without the Astryx markers, a symlink, or something
  *   other than a regular file. Never changed.
- * @typedef {'absent' | 'current' | 'differs' | 'foreign'} ComputerAgentTextState
+ * @typedef {'absent' | 'current' | 'differs' | 'edited' | 'foreign'} ComputerAgentTextState
  */
 
 /**
@@ -160,18 +295,23 @@ function stateOf(file, expected) {
     return 'foreign';
   }
   if (!hasMarkers(content)) return 'foreign';
-  return content === expected ? 'current' : 'differs';
+  if (content === expected) return 'current';
+  return isUnedited(content) ? 'differs' : 'edited';
 }
 
 /**
  * Read-only: the state of each file of the computer-level text against this
- * release's rendering.
- * @param {{home?: string, command?: string}} [options]
+ * release's rendering: every file, or only the named agents' files.
+ * @param {{home?: string, command?: string, agents?: readonly string[] | null}} [options]
  * @returns {Array<{path: string, state: ComputerAgentTextState}>}
  */
-export function inspectComputerAgentText({home = os.homedir(), command} = {}) {
+export function inspectComputerAgentText({
+  home = os.homedir(),
+  command,
+  agents = null,
+} = {}) {
   const expected = renderComputerAgentText({command});
-  return computerAgentTextPaths(home).map(file => ({
+  return computerAgentTextPaths(home, agents).map(file => ({
     path: file,
     state: stateOf(file, expected),
   }));
@@ -197,131 +337,96 @@ function writeNoFollow(file, content) {
 }
 
 /**
- * Write or refresh both files. A file without the Astryx markers, or a
- * symlinked one, is kept as it is. Creates the skill folders it needs.
- * @param {{home?: string, command?: string}} [options]
- * @returns {import('../../api/init/init.type.mjs').InitUserFile[]}
+ * Why a file was kept: a person edited it, or Astryx did not write it.
+ * @param {ComputerAgentTextState} state
+ * @returns {'edited' | 'not-astryx'}
  */
-export function writeComputerAgentText({home = os.homedir(), command} = {}) {
-  const expected = renderComputerAgentText({command});
-  return computerAgentTextPaths(home).map(file => {
-    const state = stateOf(file, expected);
-    if (state === 'foreign') return {path: file, action: 'kept'};
-    if (state === 'current') return {path: file, action: 'unchanged'};
-    fs.mkdirSync(path.dirname(file), {recursive: true});
-    writeNoFollow(file, expected);
-    return {path: file, action: 'written'};
-  });
+const keptReason = state => (state === 'edited' ? 'edited' : 'not-astryx');
+
+/**
+ * Remove one unedited Astryx file and its emptied skill folder.
+ * @param {string} file
+ */
+function removeFile(file) {
+  fs.unlinkSync(file);
+  try {
+    fs.rmdirSync(path.dirname(file));
+  } catch {
+    // The folder holds something else; leave it.
+  }
 }
 
 /**
- * Remove both files. A file without the Astryx markers, or a symlinked one,
- * is kept. An emptied skill folder is removed with its file.
+ * Write or refresh the files the chosen agents read, and remove the
+ * unedited Astryx files no chosen agent reads. A file without the Astryx
+ * markers, an edited one, or a symlinked one is kept as it is. Creates the
+ * skill folders it needs.
+ * @param {{home?: string, command?: string, agents?: readonly string[] | null}} [options]
+ * @returns {import('../../api/init/init.type.mjs').InitUserFile[]}
+ */
+export function writeComputerAgentText({
+  home = os.homedir(),
+  command,
+  agents = null,
+} = {}) {
+  const expected = renderComputerAgentText({command});
+  const wanted = new Set(computerAgentTextPaths(home, agents));
+  /** @type {import('../../api/init/init.type.mjs').InitUserFile[]} */
+  const rows = [];
+  for (const file of allComputerAgentTextPaths(home)) {
+    const state = stateOf(file, expected);
+    if (!wanted.has(file)) {
+      if (state === 'current' || state === 'differs') {
+        removeFile(file);
+        rows.push({path: file, action: 'removed'});
+      }
+      continue;
+    }
+    if (state === 'foreign' || state === 'edited') {
+      rows.push({path: file, action: 'kept', reason: keptReason(state)});
+    } else if (state === 'current') {
+      rows.push({path: file, action: 'unchanged'});
+    } else {
+      fs.mkdirSync(path.dirname(file), {recursive: true});
+      writeNoFollow(file, expected);
+      rows.push({path: file, action: 'written'});
+    }
+  }
+  return rows;
+}
+
+/**
+ * Remove every file. A file without the Astryx markers, an edited one, or a
+ * symlinked one is kept. An emptied skill folder is removed with its file.
  * @param {{home?: string}} [options]
  * @returns {import('../../api/init/init.type.mjs').InitUserFile[]}
  */
 export function removeComputerAgentText({home = os.homedir()} = {}) {
-  return computerAgentTextPaths(home).map(file => {
+  /** @type {import('../../api/init/init.type.mjs').InitUserFile[]} */
+  const rows = [];
+  allComputerAgentTextPaths(home).forEach((file, index) => {
     const state = stateOf(file, '');
-    if (state === 'absent') return {path: file, action: 'absent'};
-    if (state === 'foreign') return {path: file, action: 'kept'};
-    fs.unlinkSync(file);
-    try {
-      fs.rmdirSync(path.dirname(file));
-    } catch {
-      // The folder holds something else; leave it.
+    // The single-tool files are reported only when there is one to act on.
+    if (state === 'absent') {
+      if (index < 2) rows.push({path: file, action: 'absent'});
+      return;
     }
-    return {path: file, action: 'removed'};
+    if (state === 'foreign' || state === 'edited') {
+      rows.push({path: file, action: 'kept', reason: keptReason(state)});
+      return;
+    }
+    removeFile(file);
+    rows.push({path: file, action: 'removed'});
   });
-}
-
-/**
- * Whether a package folder is the Astryx CLI.
- * @param {string} dir
- * @returns {boolean}
- */
-function isCliPackage(dir) {
-  try {
-    const pkg = JSON.parse(
-      fs.readFileSync(path.join(dir, 'package.json'), 'utf8'),
-    );
-    return pkg?.name === CLI_PACKAGE;
-  } catch {
-    return false;
-  }
-}
-
-/** A package manager's shim names the bin it starts by its package path. */
-const SHIM_TARGET = /node_modules[\\/]@astryxdesign[\\/]cli[\\/]/u;
-
-/** Shims are small; anything larger is a program, not a shim. */
-const MAX_SHIM_BYTES = 64 * 1024;
-
-/**
- * Whether an executable named `astryx` belongs to the Astryx CLI: its real
- * file sits in the CLI package (npm and bun link it), or it is a package
- * manager's shim script that starts the CLI package's bin (npm on Windows,
- * pnpm, yarn).
- * @param {string} file
- * @returns {boolean}
- */
-function isAstryxCliBin(file) {
-  let real;
-  try {
-    real = fs.realpathSync(file);
-  } catch {
-    return false;
-  }
-  let dir = path.dirname(real);
-  for (;;) {
-    if (isCliPackage(dir)) return true;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  try {
-    if (fs.statSync(real).size > MAX_SHIM_BYTES) return false;
-    return SHIM_TARGET.test(fs.readFileSync(real, 'utf8'));
-  } catch {
-    return false;
-  }
+  return rows;
 }
 
 /**
  * Whether the `astryx` a shell would run from this computer's search path is
- * the Astryx CLI. Reads the operating system's search path (and, on Windows,
- * its executable extensions); the first `astryx` found is the one that runs.
+ * the Astryx CLI: the first `astryx` found is the one that runs.
  * @param {{searchPath?: string, platform?: NodeJS.Platform}} [options]
  * @returns {boolean}
  */
-export function astryxOnSearchPath({
-  searchPath = process.env.PATH ?? '',
-  platform = process.platform,
-} = {}) {
-  const windows = platform === 'win32';
-  const names = windows
-    ? ['astryx.cmd', 'astryx.exe', 'astryx.ps1', 'astryx']
-    : [COMPUTER_COMMAND];
-  for (const dir of searchPath.split(path.delimiter)) {
-    if (!dir) continue;
-    for (const name of names) {
-      const file = path.join(dir, name);
-      let stat;
-      try {
-        stat = fs.statSync(file);
-      } catch {
-        continue;
-      }
-      if (!stat.isFile()) continue;
-      if (!windows) {
-        try {
-          fs.accessSync(file, fs.constants.X_OK);
-        } catch {
-          continue;
-        }
-      }
-      return isAstryxCliBin(file);
-    }
-  }
-  return false;
+export function astryxOnSearchPath(options = {}) {
+  return astryxCommandsOnSearchPath(options)[0]?.astryx ?? false;
 }

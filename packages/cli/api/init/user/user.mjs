@@ -4,30 +4,41 @@
  * @file init.user leaf — the `--user` path behind `astryx init`.
  *
  * `user(options)` writes, refreshes, or (with `remove`) removes the
- * computer-level agent text: one skill file in `~/.agents/skills/astryx/` and
- * `~/.claude/skills/astryx/` (spec AST-081 FR7, FR8). It works in any folder
- * and touches only those two files, never a project's agent docs. A file
- * without the Astryx markers, or a symlinked one, is kept as it is. When no
+ * computer-level agent text: one skill file in the skill folders agent tools
+ * read in the home folder (spec AST-081 FR7, FR8). With `agents` it writes
+ * only the files those agents read. It records the choice in the settings
+ * file, so the global copy, which keeps the text current in the background,
+ * keeps the same files, or, after `remove`, writes nothing. It works in any
+ * folder and never touches a project's agent docs. A file without the Astryx
+ * markers, one a person edited, or a symlinked one is kept as it is. When no
  * `astryx` on the computer's search path runs the Astryx CLI, the text is
  * still written and the receipt warns that the CLI should be installed for
  * the computer.
  *
- * @input  `remove`; the home folder and search path of the computer
+ * @input  `remove`, `agents`; the home folder, search path, and settings of
+ *   the computer
  * @output an `init.user` receipt
  * @position packages/cli/api/init — dispatched by init.mjs
  */
 
 import * as os from 'node:os';
 import {
+  COMPUTER_AGENTS,
   COMPUTER_COMMAND,
   COMPUTER_INSTALL_STEP,
   astryxOnSearchPath,
   computerAgentCommand,
-  removeComputerAgentText,
-  writeComputerAgentText,
   displayHomePath,
+  removeComputerAgentText,
+  unknownComputerAgents,
+  writeComputerAgentText,
 } from '../../../foundation/agent-docs/computer-agent-text.mjs';
+import {recordComputerAgentTextSettings} from '../../../foundation/env/user-settings.mjs';
+import {recordAgentTextWritten} from '../../../foundation/release/global-state.mjs';
+import {cliVersion} from '../../../foundation/release/run-context.mjs';
 import {logger} from '../../logger.mjs';
+import {AstryxError} from '../../error.mjs';
+import {ERROR_CODES} from '../../../foundation/response/error-codes.mjs';
 
 /**
  * @param {string} file
@@ -42,7 +53,13 @@ const ACTION_LINES = {
   unchanged: '[ok] Already current:',
   removed: '[ok] Removed',
   absent: '[ok] Nothing to remove:',
-  kept: '[skip] Kept (not written by Astryx):',
+  kept: '[skip] Kept',
+};
+
+/** @type {Record<'edited' | 'not-astryx', string>} */
+const KEPT_REASONS = {
+  edited: '(edited since Astryx wrote it; delete it to get the current text):',
+  'not-astryx': '(not written by Astryx):',
 };
 
 /**
@@ -50,15 +67,28 @@ const ACTION_LINES = {
  * receipt. Progress is emitted through the shared `logger` (silent by
  * default); warnings go to its warn channel.
  *
- * @param {{remove?: boolean}} [options]
+ * @param {{remove?: boolean, agents?: string[] | null}} [options]
  * @returns {Promise<import('../init.type.mjs').InitUserResponse>}
  */
-export async function user({remove = false} = {}) {
+export async function user({remove = false, agents = null} = {}) {
+  if (agents) {
+    const unknown = unknownComputerAgents(agents);
+    if (unknown.length > 0) {
+      throw new AstryxError(
+        `Unknown agent ${unknown.map(name => `\`${name}\``).join(', ')} for \`--user\`. Choose from: ${COMPUTER_AGENTS.join(', ')}.`,
+        undefined,
+        ERROR_CODES.ERR_UNKNOWN_AGENT,
+      );
+    }
+  }
+  const chosen = agents && agents.length > 0 ? agents : null;
   const home = os.homedir();
   const command = computerAgentCommand();
   const files = remove
     ? removeComputerAgentText({home})
-    : writeComputerAgentText({home, command});
+    : writeComputerAgentText({home, command, agents: chosen});
+  recordComputerAgentTextSettings({install: !remove, agents: chosen});
+  if (!remove) recordAgentTextWritten(cliVersion());
   /** @type {string[]} */
   const warnings = [];
   // A host's door is its own command; only the plain `astryx` needs a copy of
@@ -69,8 +99,14 @@ export async function user({remove = false} = {}) {
     );
   }
   for (const file of files) {
-    logger.log(`${ACTION_LINES[file.action]} ${display(file.path, home)}`);
+    const reason = file.reason ? ` ${KEPT_REASONS[file.reason]}` : '';
+    logger.log(
+      `${ACTION_LINES[file.action]}${reason || (file.action === 'kept' ? ':' : '')} ${display(file.path, home)}`,
+    );
   }
   for (const warning of warnings) logger.warn(`[warn] ${warning}`);
-  return {type: 'init.user', data: {files, command, warnings}};
+  return {
+    type: 'init.user',
+    data: {files, agents: chosen, command, warnings},
+  };
 }

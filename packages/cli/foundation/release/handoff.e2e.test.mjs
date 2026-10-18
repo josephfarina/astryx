@@ -13,8 +13,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
+  CLI_VERSION,
   cleanupFixtures,
   installCore,
+  linkThisCliAsProjectCli,
   installStandInCli,
   project,
   seedRelease,
@@ -37,10 +39,10 @@ afterEach(cleanupFixtures);
  * Run this copy's bin in `cwd` with a private home and cache.
  * @param {string} cwd
  * @param {string[]} args
- * @param {{input?: string, cache?: string}} [options]
+ * @param {{input?: string, cache?: string, home?: string}} [options]
  */
 function run(cwd, args, options = {}) {
-  const home = tempDir('home');
+  const home = options.home ?? tempDir('home');
   const cache = options.cache ?? tempDir('cache');
   const result = spawnSync(process.execPath, [BIN, ...args], {
     cwd,
@@ -52,6 +54,8 @@ function run(cwd, args, options = {}) {
       USERPROFILE: home,
       XDG_CACHE_HOME: cache,
       LOCALAPPDATA: cache,
+      XDG_CONFIG_HOME: path.join(home, '.config'),
+      APPDATA: path.join(home, 'AppData', 'Roaming'),
       NO_COLOR: '1',
     },
     timeout: 60_000,
@@ -195,5 +199,35 @@ describe('computer-level commands are never handed to a project', () => {
     expect(text.stderr.split('\n')[0]).toBe(
       `astryx: answered by CLI ${SELF_VERSION} with Core ${SELF_VERSION}, for this computer`,
     );
+  });
+});
+
+describe('reminders through the real bin (FR10)', () => {
+  it('prints the project reminder once a day in text mode, and never with --json', () => {
+    const [major, minor, patch] = CLI_VERSION.split(/[.-]/u).map(Number);
+    const newest = `${major}.${minor}.${patch + 1}`;
+    const root = project(tempDir(), {
+      '@astryxdesign/core': CLI_VERSION,
+      '@astryxdesign/cli': CLI_VERSION,
+    });
+    installCore(root, CLI_VERSION);
+    linkThisCliAsProjectCli(root);
+    const cache = tempDir('cache');
+    const home = tempDir('home');
+    fs.mkdirSync(path.join(cache, 'astryx'), {recursive: true});
+    fs.writeFileSync(
+      path.join(cache, 'astryx', 'global.json'),
+      JSON.stringify({latest: newest, checkOkAt: 1}),
+    );
+    const line = `astryx: this project uses Astryx ${CLI_VERSION}; ${newest} is the newest. To upgrade: npm install @astryxdesign/core@${newest} @astryxdesign/cli@${newest}, then npx astryx upgrade --from ${CLI_VERSION} --apply.`;
+    const json = run(root, ['--version', '--json'], {cache, home});
+    expect(json.status).toBe(0);
+    expect(json.stderr).not.toContain('this project uses');
+    const first = run(root, ['--version'], {cache, home});
+    expect(first.status).toBe(0);
+    expect(first.stderr.split('\n')).toContain(line);
+    expect(first.stdout.trim()).toBe(CLI_VERSION);
+    const second = run(root, ['--version'], {cache, home});
+    expect(second.stderr).not.toContain('this project uses');
   });
 });

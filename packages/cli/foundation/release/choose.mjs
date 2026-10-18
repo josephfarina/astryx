@@ -44,6 +44,7 @@ import {
   userCacheDir,
 } from './cache.mjs';
 import {currentGlobalRelease} from './global-state.mjs';
+import {relativeWithin, samePath} from '../fs/path-compare.mjs';
 
 /**
  * The copy that is running.
@@ -86,13 +87,43 @@ function real(p) {
 const GLOBAL_OWNER_PATTERNS = [
   // pnpm: `<pnpm home>/global/5` before pnpm 10, `<pnpm home>/global/v11/<id>` since.
   /[\\/]global[\\/]v?\d+(?:[\\/][^\\/]+)?$/,
-  /[\\/]yarn[\\/]global$/,
-  /[\\/]\.bun[\\/]install[\\/]global$/,
+  // Yarn 1: `~/.config/yarn/global`, or `%LOCALAPPDATA%\Yarn\Data\global` on Windows.
+  /[\\/]yarn[\\/](?:data[\\/])?global$/i,
+  /[\\/]\.bun[\\/]install[\\/]global$/i,
 ];
 
 /** Path markers of package runners' temporary installs. */
 const RUNNER_CACHE =
-  /[\\/]_npx[\\/]|[\\/]dlx[-\\/]|[\\/]\.bun[\\/]install[\\/]cache[\\/]|[\\/]bunx-|[\\/]xfs-/;
+  /[\\/]_npx[\\/]|[\\/]dlx[-\\/]|[\\/]\.bun[\\/]install[\\/]cache[\\/]|[\\/]bunx-|[\\/]xfs-/i;
+
+/**
+ * Where an installed CLI package lives: its owner, the folder that holds the
+ * `node_modules` it is in (above pnpm's `.pnpm` store), and whether that owner
+ * is a package manager's global folder by name. Pure: reads no file, and
+ * accepts either separator, so Windows paths read the same on every platform.
+ * @param {string} root the package's real folder
+ * @returns {{runner: boolean, owner: string | null, knownGlobal: boolean}}
+ */
+export function installPlaceOf(root) {
+  if (RUNNER_CACHE.test(root)) {
+    return {runner: true, owner: null, knownGlobal: false};
+  }
+  const sep = /^[A-Za-z]:\\|^\\\\/.test(root) ? '\\' : path.sep;
+  const parts = root.split(/[\\/]/);
+  const at = parts.lastIndexOf('node_modules');
+  if (at < 1) return {runner: false, owner: null, knownGlobal: false};
+  let owner = parts.slice(0, at).join(sep) || sep;
+  // pnpm keeps the real folder in `<owner>/node_modules/.pnpm/<id>/node_modules`.
+  const pnpmAt = parts.lastIndexOf('.pnpm');
+  if (pnpmAt > 0 && parts[pnpmAt - 1] === 'node_modules') {
+    owner = parts.slice(0, pnpmAt - 1).join(sep) || sep;
+  }
+  return {
+    runner: false,
+    owner,
+    knownGlobal: GLOBAL_OWNER_PATTERNS.some(re => re.test(owner)),
+  };
+}
 
 /**
  * Is the running copy the CLI package installed for the computer
@@ -109,18 +140,12 @@ const RUNNER_CACHE =
  */
 export function isGlobalCopy(cliRoot, cacheDir = userCacheDir()) {
   const root = real(cliRoot);
-  if (RUNNER_CACHE.test(root) || isInReleaseCache(root, cacheDir)) return false;
-  const parts = root.split(/[\\/]/);
-  const at = parts.lastIndexOf('node_modules');
-  if (at < 1) return false;
-  let owner = parts.slice(0, at).join(path.sep) || path.sep;
-  // pnpm keeps the real folder in `<owner>/node_modules/.pnpm/<id>/node_modules`.
-  const pnpmAt = parts.lastIndexOf('.pnpm');
-  if (pnpmAt > 0 && parts[pnpmAt - 1] === 'node_modules') {
-    owner = parts.slice(0, pnpmAt - 1).join(path.sep) || path.sep;
+  const place = installPlaceOf(root);
+  if (place.runner || !place.owner || isInReleaseCache(root, cacheDir)) {
+    return false;
   }
-  if (GLOBAL_OWNER_PATTERNS.some(re => re.test(owner))) return true;
-  return !fs.existsSync(path.join(owner, 'package.json'));
+  if (place.knownGlobal) return true;
+  return !fs.existsSync(path.join(place.owner, 'package.json'));
 }
 
 /**
@@ -179,7 +204,9 @@ export function chooseRelease({
 
   if (!facts.inProject) {
     if (isGlobalCopy(self.root, cacheDir)) {
-      const current = currentGlobalRelease(cacheDir);
+      const current = currentGlobalRelease(cacheDir, {
+        selfVersion: self.version,
+      });
       if (current && current.version !== self.version) {
         return {
           copy: 'carried',
@@ -221,7 +248,7 @@ export function chooseRelease({
 
   const coreVersion = facts.core?.version ?? version;
   if (facts.cli && (!version || facts.cli.version === version)) {
-    if (real(facts.cli.dir) === selfReal) {
+    if (samePath(real(facts.cli.dir), selfReal)) {
       return {
         copy: 'project',
         answer: 'self',
@@ -288,7 +315,7 @@ export function chooseRelease({
  * @param {import('./project.mjs').ReleaseFacts} facts
  * @returns {string | null}
  */
-function projectRootOf(facts) {
+export function projectRootOf(facts) {
   if (facts.declaringDir) return facts.declaringDir;
   const dir = facts.core?.dir ?? facts.cli?.dir;
   if (!dir) return null;
@@ -309,9 +336,9 @@ function projectRootOf(facts) {
  */
 function isInside(child, parent) {
   if (!parent) return false;
-  const rel = path.relative(real(parent), child);
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return false;
-  return !rel.split(path.sep).includes('node_modules');
+  const rel = relativeWithin(real(parent), child);
+  if (rel === null) return false;
+  return !rel.split(/[\\/]/).includes('node_modules');
 }
 
 /** The facts of a folder outside any project. */

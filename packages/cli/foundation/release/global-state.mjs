@@ -18,7 +18,12 @@
  *       latest       the version `latest` named at the last check
  *       current      the verified release outside-project runs answer with
  *       previous     the release before it
- *       notice       a switch not yet announced: {from, to} or {blockedBy}
+ *       notice       a switch not yet announced: {from, to}, or the newest
+ *                    release blocked by Node: {blockedVersion, blockedReason}
+ *       checkOkAt    when a check last reached the registry
+ *       agentText    the computer-level agent text: {writtenBy, attemptFor,
+ *                    attemptAt}, the release that last wrote it and the last
+ *                    background attempt (spec AST-081 FR8)
  *
  * @input  the clock, the registry's `latest` tag (in the worker)
  * @output which cached release answers outside a project
@@ -34,10 +39,14 @@ import {
   userCacheDir,
   cachedRelease,
   ensureRelease,
+  keptReleaseVersions,
+  releaseSupportsNode,
   resolvePublishedVersion,
   tryLock,
   isReleaseVersion,
 } from './cache.mjs';
+import {semverCompare} from '../env/semver.mjs';
+import {computerAgentTextSettings} from '../env/user-settings.mjs';
 import {readJson} from './project.mjs';
 
 /** The shortest time between two checks of the `latest` tag. */
@@ -60,6 +69,8 @@ export const CHECK_INTERVAL_MS = 60 * 60_000;
  * @property {string} [current]
  * @property {string} [previous]
  * @property {GlobalNotice | null} [notice]
+ * @property {number} [checkOkAt]
+ * @property {{writtenBy?: string, attemptFor?: string, attemptAt?: number}} [agentText]
  */
 
 /**
@@ -114,20 +125,100 @@ export function knownLatestRelease(cacheDir = userCacheDir()) {
 }
 
 /**
- * The cached release the global copy answers with outside a project, when
- * one is saved and still verified. Falls back to the previous release when the
- * current one has gone missing.
+ * The cached release the global copy answers with outside a project, or
+ * `null` when the installed copy answers itself.
+ *
+ * The saved current release answers when it is verified and runs on this
+ * Node. Otherwise (it has gone missing, or a version manager switched to a
+ * Node it does not support) the newest verified release no newer than it
+ * that runs on this Node answers, unless the installed copy is newer still
+ * (spec AST-081 FR6).
  * @param {string} [cacheDir]
+ * @param {{nodeVersion?: string, selfVersion?: string}} [options]
  * @returns {import('./cache.mjs').CachedRelease | null}
  */
-export function currentGlobalRelease(cacheDir = userCacheDir()) {
+export function currentGlobalRelease(cacheDir = userCacheDir(), options = {}) {
+  const {nodeVersion = process.versions.node, selfVersion} = options;
   const state = readGlobalState(cacheDir);
-  for (const version of [state.current, state.previous]) {
-    if (!isReleaseVersion(version)) continue;
+  const ceiling = [state.current, state.previous].find(isReleaseVersion);
+  if (!ceiling) return null;
+  const current = isReleaseVersion(state.current)
+    ? cachedRelease(state.current, cacheDir)
+    : null;
+  if (current && releaseSupportsNode(current, nodeVersion)) return current;
+  const candidates = keptReleaseVersions(cacheDir)
+    .filter(v => !v.includes('-') && semverCompare(v, ceiling) <= 0)
+    .sort((a, b) => semverCompare(b, a));
+  for (const version of candidates) {
+    if (selfVersion && semverCompare(selfVersion, version) >= 0) return null;
     const release = cachedRelease(version, cacheDir);
-    if (release) return release;
+    if (release && releaseSupportsNode(release, nodeVersion)) return release;
   }
   return null;
+}
+
+/**
+ * Record the release that last wrote the computer-level agent text.
+ * @param {string | null} version
+ * @param {string} [cacheDir]
+ */
+export function recordAgentTextWritten(version, cacheDir = userCacheDir()) {
+  if (!isReleaseVersion(version)) return;
+  updateGlobalState({agentText: {writtenBy: version}}, cacheDir);
+}
+
+/** A background attempt to write the agent text is retried after an hour. */
+export const AGENT_TEXT_RETRY_MS = 60 * 60_000;
+
+/**
+ * The global copy keeps the computer-level agent text installed (spec
+ * AST-081 FR8): when the person has not turned it off and the release the
+ * global copy answers with outside a project has not written it yet, that
+ * release's own background step writes it, detached, so no command waits.
+ * Returns whether a step was started.
+ *
+ * @param {{
+ *   release: {version: string, root: string},
+ *   cacheDir?: string,
+ *   configDir?: string,
+ *   now?: number,
+ *   start?: (worker: string, cacheDir: string) => void,
+ * }} options
+ * @returns {boolean}
+ */
+export function maybeKeepAgentText({
+  release,
+  cacheDir = userCacheDir(),
+  configDir,
+  now = Date.now(),
+  start = startWorker,
+}) {
+  if (!computerAgentTextSettings(configDir).install) return false;
+  const {agentText} = readGlobalState(cacheDir);
+  if (agentText?.writtenBy === release.version) return false;
+  if (
+    agentText?.attemptFor === release.version &&
+    typeof agentText.attemptAt === 'number' &&
+    now - agentText.attemptAt < AGENT_TEXT_RETRY_MS
+  ) {
+    return false;
+  }
+  const worker = path.join(
+    release.root,
+    'foundation',
+    'release',
+    'agent-text-worker.mjs',
+  );
+  // A release without the step predates it; it never writes the text.
+  if (!fs.existsSync(worker)) return false;
+  updateGlobalState(
+    {agentText: {...agentText, attemptFor: release.version, attemptAt: now}},
+    cacheDir,
+  );
+  // An attempt that cannot be recorded would start again on every run.
+  if (readGlobalState(cacheDir).agentText?.attemptAt !== now) return false;
+  start(worker, cacheDir);
+  return true;
 }
 
 /**
@@ -195,7 +286,7 @@ export function runCheck(options = {}) {
   try {
     const latest = resolve('@astryxdesign/cli', 'latest');
     if (!latest) return readGlobalState(cacheDir);
-    const state = updateGlobalState({latest}, cacheDir);
+    const state = updateGlobalState({latest, checkOkAt: Date.now()}, cacheDir);
     if (state.current === latest && cachedRelease(latest, cacheDir)) {
       return state;
     }

@@ -22,8 +22,9 @@ export const doc = {
     'getting-started steps); the theme feature also writes an annotated theme template. ' +
     'Outside a project it writes the same files but prints no step that sets up a project: ' +
     'no getting-started steps, and no step that adds a theme to an app. ' +
-    '--user writes the computer-level agent text instead (see the flag), in any folder, and touches nothing in the folder; ' +
-    'install and upgrade never write it.',
+        '--user writes the computer-level agent text instead (see the flag), in any folder, and touches nothing in the folder. ' +
+    'The CLI installed for the computer also keeps that text current in the background, unless --user --remove-agents turned it off; ' +
+    'package install scripts, project setup, and upgrade never write it.',
   fn: 'init',
   options: [
     {
@@ -51,11 +52,13 @@ export const doc = {
       flag: '--user',
       param: 'options.user',
       description:
-        'Write or refresh the computer-level agent text, one skill file at ~/.agents/skills/astryx/SKILL.md and ~/.claude/skills/astryx/SKILL.md, ' +
+        'Write or refresh the computer-level agent text, one skill file at ~/.agents/skills/astryx/SKILL.md and ~/.claude/skills/astryx/SKILL.md, plus ~/.continue, ~/.kiro, or ~/.codeium/windsurf skills when that tool is installed, ' +
         "instead of setting up the folder. It tells agents anywhere on the computer how to use Astryx through the `astryx` command, and to follow a project's own agent docs inside that project. " +
-        'Works in any folder and writes only those two files. A file there without the Astryx markers, or a symlink, is kept as it is. ' +
+        'With --agent, a comma-separated list of claude, codex, gemini, copilot, cursor, opencode, crush, qwen, cline, amp, goose, roo, zed, continue, kiro, windsurf, it writes only the files those agents read and removes the other unedited one. ' +
+        'Records the choice in astryx/settings.json in the per-user configuration folder, which the CLI installed for the computer follows when it refreshes the text in the background. ' +
+        'Works in any folder and writes only those files and that setting. A file there without the Astryx markers, one edited since Astryx wrote it, or a symlink, is kept as it is. ' +
         'Warns, and still writes, when no `astryx` command on the computer runs the Astryx CLI. ' +
-        'With --remove-agents it removes the two files instead. --features, --all, --agent and --agent-docs-path are refused',
+        'With --remove-agents it removes the files instead and records that the text is turned off. --features, --all and --agent-docs-path are refused, and --agent with --remove-agents',
     },
     {
       flag: '--agent <tool>',
@@ -65,7 +68,8 @@ export const doc = {
         'Target AI tool for agent docs: claude (CLAUDE.md or .claude/CLAUDE.md, else creates .claude/CLAUDE.md), cursor (.cursorrules if present, else AGENTS.md), ' +
         'codex and muse (AGENTS.md), hermes (.hermes.md or HERMES.md if present, else AGENTS.md), all (every existing agent doc, else AGENTS.md and .claude/CLAUDE.md). ' +
         'An unknown tool exits 1 with ERR_UNKNOWN_AGENT. ' +
-        'Used only when agent docs are installed (the default, --all, or --features agents); --agent-docs-path takes precedence',
+                'Used only when agent docs are installed (the default, --all, or --features agents); --agent-docs-path takes precedence. ' +
+        'With --user it takes a comma-separated list of the agents the computer-level text is for: claude, codex, gemini, copilot, cursor, opencode, crush, qwen, cline, amp, goose, roo, zed, continue, kiro, windsurf',
     },
     {
       flag: '--agent-docs-path <path...>',
@@ -81,7 +85,8 @@ export const doc = {
     {label: 'All features, no prompts', cli: 'astryx init --all'},
     {label: 'Machine-readable receipt', cli: 'astryx init --json'},
     {label: 'Agent text for the whole computer', cli: 'astryx init --user'},
-    {label: 'Remove the computer-level agent text', cli: 'astryx init --user --remove-agents'},
+        {label: 'Agent text for some agents only', cli: 'astryx init --user --agent claude,codex'},
+    {label: 'Remove the computer-level agent text and turn it off', cli: 'astryx init --user --remove-agents'},
   ],
   outsideProject: 'own',
   exitCodes: [
@@ -91,7 +96,7 @@ export const doc = {
     },
     {
       code: 1,
-      when: 'an unknown --agent or feature, an --agent-docs-path outside the project, --remove-agents combined with install options, --user combined with --features, --all, --agent or --agent-docs-path, or --all with --features (ERR_INVALID_ARGUMENT)',
+            when: 'an unknown --agent (ERR_UNKNOWN_AGENT) or feature, an --agent-docs-path outside the project, --remove-agents combined with install options, --user combined with --features, --all or --agent-docs-path, --user --remove-agents with --agent, or --all with --features (ERR_INVALID_ARGUMENT)',
     },
   ],
   related: ['doctor', 'upgrade', 'build', 'theme'],

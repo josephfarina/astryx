@@ -16,6 +16,9 @@ import {user} from './user.mjs';
 import {runWithCliDoor} from '../../../foundation/env/cli-command.mjs';
 import {renderComputerAgentText} from '../../../foundation/agent-docs/computer-agent-text.mjs';
 import {runCli} from '../../../test-utils/run-cli.mjs';
+import {settingsFile} from '../../../foundation/env/user-settings.mjs';
+import {readGlobalState} from '../../../foundation/release/global-state.mjs';
+import {cliVersion} from '../../../foundation/release/run-context.mjs';
 
 /** @type {string[]} */
 const dirs = [];
@@ -36,7 +39,21 @@ beforeEach(() => {
   vi.stubEnv('HOME', home);
   vi.stubEnv('USERPROFILE', home);
   vi.stubEnv('PATH', emptyPath);
+  // The settings file and the cache live under this home folder too.
+  vi.stubEnv('XDG_CONFIG_HOME', path.join(home, '.config'));
+  vi.stubEnv('XDG_CACHE_HOME', path.join(home, '.cache'));
+  vi.stubEnv('APPDATA', path.join(home, 'AppData', 'Roaming'));
+  vi.stubEnv('LOCALAPPDATA', path.join(home, 'AppData', 'Local'));
 });
+
+/** The settings file under the temporary home folder. */
+const settings = () => {
+  try {
+    return JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
+  } catch {
+    return null;
+  }
+};
 afterEach(() => {
   vi.unstubAllEnvs();
   while (dirs.length) {
@@ -116,6 +133,52 @@ describe('init({user: true})', () => {
     expect(fs.readdirSync(dir).sort()).toEqual(before);
   });
 
+  it('records the choice: every agent, and the release that wrote the text', async () => {
+    await init({user: true});
+    expect(settings()).toEqual({computerAgentText: {install: true}});
+    expect(readGlobalState().agentText).toEqual({writtenBy: cliVersion()});
+  });
+
+  it("with agent writes only those agents' files and records them", async () => {
+    const r = await init({user: true, agent: 'claude, claude'});
+    if (r.type !== 'init.user') throw new Error(r.type);
+    expect(r.data.agents).toEqual(['claude']);
+    expect(r.data.files).toEqual([
+      {path: path.join(home, SKILLS[1]), action: 'written'},
+    ]);
+    expect(fs.existsSync(path.join(home, SKILLS[0]))).toBe(false);
+    expect(settings()).toEqual({
+      computerAgentText: {install: true, agents: ['claude']},
+    });
+    const all = await init({user: true});
+    if (all.type !== 'init.user') throw new Error(all.type);
+    expect(all.data.agents).toBeNull();
+    expect(settings()).toEqual({computerAgentText: {install: true}});
+  });
+
+  it('refuses an unknown agent name with ERR_UNKNOWN_AGENT and writes nothing', async () => {
+    await expect(
+      init({user: true, agent: 'claude,aider'}),
+    ).rejects.toMatchObject({
+      code: 'ERR_UNKNOWN_AGENT',
+      message: expect.stringContaining('`aider`'),
+    });
+    expect(fs.existsSync(path.join(home, '.claude'))).toBe(false);
+    expect(settings()).toBeNull();
+  });
+
+  it('keeps every other setting when it records the choice', async () => {
+    fs.mkdirSync(path.dirname(settingsFile()), {recursive: true});
+    fs.writeFileSync(settingsFile(), '{"other": 1}');
+    await init({user: true, removeAgents: true});
+    expect(settings()).toEqual({other: 1, computerAgentText: {install: false}});
+  });
+
+  it('with removeAgents removes both files and records that the text is not wanted', async () => {
+    await init({user: true, removeAgents: true});
+    expect(settings()).toEqual({computerAgentText: {install: false}});
+  });
+
   it('with removeAgents removes both files', async () => {
     await init({user: true});
     const r = await init({user: true, removeAgents: true});
@@ -130,8 +193,8 @@ describe('init({user: true})', () => {
   it.each([
     [{features: 'agents'}, '--features'],
     [{all: true}, '--all'],
-    [{agent: 'claude'}, '--agent'],
     [{agentDocsPath: 'X.md'}, '--agent-docs-path'],
+    [{removeAgents: true, agent: 'claude'}, '--agent'],
   ])(
     'refuses %o with ERR_INVALID_ARGUMENT and writes nothing',
     async (extra, flag) => {
@@ -163,6 +226,31 @@ describe('astryx init --user', () => {
       env.data.files.map((/** @type {{action: string}} */ f) => f.action),
     ).toEqual(['written', 'written']);
     expect(env.data.command).toBe('astryx');
+  });
+
+  it('takes a comma-separated --agent list', async () => {
+    const r = await runCli(
+      ['--json', 'init', '--user', '--agent', 'codex,claude'],
+      tmp('cwd'),
+    );
+    expect(r.status).toBe(0);
+    const env = JSON.parse(r.stdout);
+    expect(env.data.agents).toEqual(['codex', 'claude']);
+    expect(
+      env.data.files.map((/** @type {{action: string}} */ f) => f.action),
+    ).toEqual(['written', 'written']);
+  });
+
+  it('names a file a person edited as kept, and why', async () => {
+    await runCli(['init', '--user'], tmp('cwd'));
+    const file = path.join(home, SKILLS[1]);
+    fs.appendFileSync(file, 'my note\n');
+    const r = await runCli(['init', '--user'], tmp('cwd'));
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(
+      `Kept (edited since Astryx wrote it; delete it to get the current text): ~${path.sep}${SKILLS[1]}`,
+    );
+    expect(fs.readFileSync(file, 'utf8')).toMatch(/my note\n$/u);
   });
 
   it('exits 1 with ERR_INVALID_ARGUMENT when combined with --all', async () => {

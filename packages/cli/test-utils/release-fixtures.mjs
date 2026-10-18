@@ -72,12 +72,15 @@ process.exit(at === -1 ? 0 : Number(args[at + 1]));
  * node_modules (or at `dir` itself with `{at: true}`).
  * @param {string} dir
  * @param {string} version
- * @param {{bin?: boolean}} [options] `bin: false` leaves the command out
+ * @param {{bin?: boolean, engines?: Record<string, string>}} [options]
+ *   `bin: false` leaves the command out; `engines` is written as declared
  * @returns {string} the package folder
  */
 export function installStandInCli(dir, version, options = {}) {
   const pkgDir = path.join(dir, 'node_modules', '@astryxdesign', 'cli');
+  /** @type {Record<string, unknown>} */
   const pkg = {name: '@astryxdesign/cli', version, type: 'commonjs'};
+  if (options.engines) pkg.engines = options.engines;
   if (options.bin !== false) {
     Object.assign(pkg, {bin: {astryx: './bin.cjs'}});
     fs.mkdirSync(pkgDir, {recursive: true});
@@ -122,15 +125,16 @@ export function project(dir, deps) {
  * marker `ensureRelease` leaves.
  * @param {string} cacheDir
  * @param {string} version
+ * @param {{engines?: Record<string, string>}} [options] the CLI's `engines`
  * @returns {string} the release folder
  */
-export function seedRelease(cacheDir, version) {
+export function seedRelease(cacheDir, version, options = {}) {
   const dir = path.join(cacheDir, 'releases', version);
   writeJson(path.join(dir, 'package.json'), {
     name: 'astryx-release',
     private: true,
   });
-  installStandInCli(dir, version);
+  installStandInCli(dir, version, options);
   installCore(dir, version);
   /** @type {Record<string, string>} */
   const files = {};

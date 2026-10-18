@@ -36,6 +36,22 @@ export {getNextSteps} from './run/run.mjs';
  */
 
 /**
+ * `--agent` with `--user` takes a comma-separated list of agent names.
+ * @param {string} value
+ * @returns {string[]}
+ */
+function splitAgents(value) {
+  return [
+    ...new Set(
+      String(value)
+        .split(',')
+        .map(name => name.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+/**
  * Run the non-interactive init flow. Dispatches to the user leaf when
  * `--user` is set (it writes, or with `--remove-agents` removes, the
  * computer-level agent text and nothing in the folder), to the remove leaf
@@ -50,22 +66,27 @@ export {getNextSteps} from './run/run.mjs';
  */
 export async function init(options = {}, {cwd = process.cwd()} = {}) {
   if (options.user) {
-    // Its own path: two fixed files in the home folder, never the project
+    // Its own path: fixed files in the home folder, never the project
     // agent-docs resolution, so it works the same in every folder.
     const refused = [
       options.features ? '--features' : null,
       options.all ? '--all' : null,
-      options.agent ? '--agent' : null,
       options.agentDocsPath ? '--agent-docs-path' : null,
+      options.removeAgents && options.agent ? '--agent' : null,
     ].filter(Boolean);
     if (refused.length > 0) {
       throw new AstryxError(
-        `\`--user\` cannot be combined with ${refused.join(', ')}: it writes only the computer-level agent text, which has no features and no agent or path choice.`,
+        options.removeAgents && options.agent && refused.length === 1
+          ? '`--user --remove-agents` cannot be combined with `--agent`: it removes every file of the computer-level agent text. To keep only some agents, run `astryx init --user --agent <names>`.'
+          : `\`--user\` cannot be combined with ${refused.join(', ')}: it writes only the computer-level agent text, which has no features and no path choice.`,
         undefined,
         ERROR_CODES.ERR_INVALID_ARGUMENT,
       );
     }
-    return user({remove: Boolean(options.removeAgents)});
+    return user({
+      remove: Boolean(options.removeAgents),
+      agents: options.agent ? splitAgents(options.agent) : null,
+    });
   }
   if (options.removeAgents) {
     const ignored = [

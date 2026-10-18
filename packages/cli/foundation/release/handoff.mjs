@@ -32,11 +32,14 @@ import {
 } from './choose.mjs';
 import {ensureRelease, userCacheDir} from './cache.mjs';
 import {
+  currentGlobalRelease,
+  maybeKeepAgentText,
   maybeStartCheck,
   readGlobalState,
   updateGlobalState,
 } from './global-state.mjs';
 import {recordRunChoice} from './run-context.mjs';
+import {reminderLines} from './reminders.mjs';
 
 /** Where each release's notes are published. */
 const RELEASE_NOTES = 'https://github.com/facebook/astryx/releases/tag/v';
@@ -123,7 +126,7 @@ function failUnavailable(message, json) {
  *   first switch
  */
 function announceSwitch(cacheDir, selfVersion) {
-  const {notice, current} = readGlobalState(cacheDir);
+  const {notice} = readGlobalState(cacheDir);
   if (!notice) return;
   if (notice.to) {
     const from = notice.from ?? selfVersion;
@@ -132,12 +135,8 @@ function announceSwitch(cacheDir, selfVersion) {
       `astryx: now using ${notice.to}${was}. What changed: ${RELEASE_NOTES}${notice.to}`,
     );
     updateGlobalState({notice: null}, cacheDir);
-  } else if (notice.blockedVersion && !notice.announced) {
-    console.error(
-      `astryx: ${notice.blockedVersion} is out, but ${notice.blockedReason}; staying on ${current ?? 'this release'}.`,
-    );
-    updateGlobalState({notice: {...notice, announced: true}}, cacheDir);
   }
+  // A newest release blocked by Node is FR10's reminder, not a notice.
 }
 
 /**
@@ -155,6 +154,21 @@ export async function startRun({cliRoot, argv}) {
       maybeStartCheck({cacheDir});
     } catch {
       // A check that cannot start never fails a run.
+    }
+    try {
+      // The release that answers outside a project keeps the computer-level
+      // agent text on its own text (FR8).
+      const answering = currentGlobalRelease(cacheDir, {
+        selfVersion: self.version,
+      });
+      maybeKeepAgentText({
+        cacheDir,
+        release: answering
+          ? {version: answering.version, root: answering.cliDir}
+          : self,
+      });
+    } catch {
+      // Nor does the agent text.
     }
   }
 
@@ -192,10 +206,24 @@ export async function startRun({cliRoot, argv}) {
   if (!json && global && !choice.inProject)
     announceSwitch(cacheDir, self.version);
 
+  /** FR10: at most one line per reminder a day, after the who-answered line. */
+  const remind = () => {
+    if (json) return;
+    for (const line of reminderLines({
+      cwd: process.cwd(),
+      self,
+      global,
+      choice: computer ? {...choice, inProject: false} : choice,
+      cacheDir,
+    })) {
+      console.error(line);
+    }
+  };
   if (choice.answer === 'self') {
     recordRunChoice(choice);
     if (!json && choice.copy !== 'project')
       console.error(whoAnsweredLine(choice, computer));
+    remind();
     return;
   }
 
@@ -221,6 +249,7 @@ export async function startRun({cliRoot, argv}) {
       console.error(whoAnsweredLine(choice, computer));
     }
   }
+  remind();
 
   await handOff(bin, argv, choice, json);
 }

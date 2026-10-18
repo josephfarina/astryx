@@ -23,6 +23,7 @@ import {
   tempDir,
   writeJson,
 } from '../../test-utils/release-fixtures.mjs';
+import {LEASE_SILENCE_MS, renewLock} from './lock-lease.mjs';
 
 afterEach(cleanupFixtures);
 
@@ -223,6 +224,31 @@ describe('tryLock', () => {
     const old = new Date(Date.now() - 31 * 60_000);
     fs.utimesSync(dir, old, old);
     expect(tryLock(dir)).toBe(true);
+  });
+
+  it('takes over a lock from another computer once its holder stops renewing it (b12)', () => {
+    const dir = path.join(tempDir('lock'), '.lock-z');
+    fs.mkdirSync(dir, {recursive: true});
+    const owner = path.join(dir, 'owner.json');
+    fs.writeFileSync(owner, JSON.stringify({pid: 4242, host: 'other-host'}));
+    const t0 = Date.now();
+    expect(tryLock(dir, {now: t0})).toBe(false);
+    expect(tryLock(dir, {now: t0 + LEASE_SILENCE_MS - 1})).toBe(false);
+    // The holder renews: the wait starts again from the change.
+    renewLock(dir);
+    expect(JSON.parse(fs.readFileSync(owner, 'utf8'))).toEqual({
+      pid: 4242,
+      host: 'other-host',
+      beat: 1,
+    });
+    expect(tryLock(dir, {now: t0 + LEASE_SILENCE_MS})).toBe(false);
+    expect(tryLock(dir, {now: t0 + 2 * LEASE_SILENCE_MS - 1})).toBe(false);
+    // Unrenewed for the whole lease, as this run saw it: taken over.
+    expect(tryLock(dir, {now: t0 + 2 * LEASE_SILENCE_MS})).toBe(true);
+    expect(JSON.parse(fs.readFileSync(owner, 'utf8'))).toEqual({
+      pid: process.pid,
+      host: os.hostname(),
+    });
   });
 
   it('reclaims a lock with no owner record after a few seconds', () => {
