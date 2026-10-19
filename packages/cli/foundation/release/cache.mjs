@@ -230,36 +230,6 @@ function verifyRelease(version, cacheDir) {
 }
 
 /**
- * Whether a cached release runs on this Node: its CLI declares no Node
- * range, or the range admits `nodeVersion`. A release installed under one
- * Node can be started under another after a version manager switches it.
- * @param {CachedRelease} release
- * @param {string} [nodeVersion]
- * @returns {boolean}
- */
-export function releaseSupportsNode(
-  release,
-  nodeVersion = process.versions.node,
-) {
-  const engine = readJson(path.join(release.cliDir, 'package.json'))?.engines
-    ?.node;
-  return typeof engine !== 'string' || satisfiesRange(nodeVersion, engine);
-}
-
-/**
- * The versions with a folder in the release cache, verified or not.
- * @param {string} [cacheDir]
- * @returns {string[]}
- */
-export function keptReleaseVersions(cacheDir = userCacheDir()) {
-  try {
-    return fs.readdirSync(releasesDir(cacheDir)).filter(isReleaseVersion);
-  } catch {
-    return [];
-  }
-}
-
-/**
  * Is `dir` inside the release cache? A copy that lives there was started by
  * global mode, never installed by a person.
  * @param {string} dir
@@ -418,6 +388,41 @@ export function resolvePublishedVersion(name, spec, options = {}) {
     isReleaseVersion,
   );
   return versions.length > 0 ? versions[versions.length - 1] : null;
+}
+
+/**
+ * The release the registry tags `latest` for the CLI, and the Node range it
+ * declares; null when the registry cannot be asked.
+ * @param {{run?: typeof runNpm}} [options]
+ * @returns {{version: string, node: string | null} | null}
+ */
+export function resolveLatestRelease(options = {}) {
+  const run = options.run ?? runNpm;
+  const result = run(
+    [
+      'view',
+      '@astryxdesign/cli@latest',
+      'version',
+      'engines',
+      '--json',
+      ...BOUNDED_FETCH,
+    ],
+    {timeoutMs: 60_000},
+  );
+  if (result.status !== 0) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(result.stdout || 'null');
+  } catch {
+    return null;
+  }
+  const info = Array.isArray(parsed) ? parsed[parsed.length - 1] : parsed;
+  if (typeof info === 'string') {
+    return isReleaseVersion(info) ? {version: info, node: null} : null;
+  }
+  if (!info || !isReleaseVersion(info.version)) return null;
+  const node = info.engines?.node;
+  return {version: info.version, node: typeof node === 'string' ? node : null};
 }
 
 /**

@@ -40,27 +40,29 @@ describe('checkNewestRelease', () => {
       label: 'Newest release',
       status: 'info',
       message: 'This project uses Astryx 0.7.1; 0.7.3 is the newest.',
-      fix: 'Run `npm install @astryxdesign/core@0.7.3`, then `npx @astryxdesign/cli@0.7.3 upgrade --from 0.7.1 --apply`.',
+      fix: 'To upgrade, run: npm install @astryxdesign/core@0.7.3, then npx @astryxdesign/cli@0.7.3 upgrade --from 0.7.1 --apply.',
     });
   });
 
-  it('warns when the global copy cannot move, with the cause and fix', () => {
+  it("names the global copy's upgrade, after the Node the newest release needs", () => {
     const check = checkNewestRelease({
       nodeVersion: '22.13.0',
       answeredBy: {...answeredBy, copy: 'carried'},
       latest: '0.8.0',
-      globalLag: {
-        cause: 'node',
+      globalBehind: {
+        current: '0.7.1',
         newest: '0.8.0',
-        message: 'it needs Node >=24, and this computer runs Node 22.13.0',
-        fix: 'Install a Node version that 0.8.0 supports, then run `astryx --version`.',
+        node: '>=99',
+        command: 'pnpm add -g @astryxdesign/cli@latest',
       },
     });
-    expect(check).toMatchObject({
-      status: 'warn',
+    expect(check).toEqual({
+      id: 'newest-release',
+      label: 'Newest release',
+      status: 'info',
       message:
-        'The CLI installed for the computer cannot move to 0.8.0: it needs Node >=24, and this computer runs Node 22.13.0.',
-      fix: 'Install a Node version that 0.8.0 supports, then run `astryx --version`.',
+        'A new release of Astryx is available: 0.7.1 → 0.8.0. The CLI installed for the computer stays on its release until you upgrade it.',
+      fix: `To upgrade, install Node >=99 (this computer runs Node ${process.versions.node}), then run: pnpm add -g @astryxdesign/cli@latest.`,
     });
   });
 });
@@ -91,7 +93,7 @@ describe('checkCliOnPath', () => {
       }),
     ).toMatchObject({
       status: 'warn',
-      fix: 'Replace it: `npm i -g @astryxdesign/cli@latest`.',
+      fix: 'To upgrade, run: `npm i -g @astryxdesign/cli@latest`.',
     });
   });
 

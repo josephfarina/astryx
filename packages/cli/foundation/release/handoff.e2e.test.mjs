@@ -40,7 +40,7 @@ afterEach(cleanupFixtures);
  * Run this copy's bin in `cwd` with a private home and cache.
  * @param {string} cwd
  * @param {string[]} args
- * @param {{input?: string, cache?: string, home?: string}} [options]
+ * @param {{input?: string, cache?: string, home?: string, env?: Record<string, string>}} [options]
  */
 function run(cwd, args, options = {}) {
   const home = options.home ?? tempDir('home');
@@ -51,9 +51,12 @@ function run(cwd, args, options = {}) {
     input: options.input ?? '',
     env: {
       // Not the package manager running the tests: its npm_* settings would
-      // name it as the project's package manager.
+      // name it as the project's package manager. Nor the test runner's CI
+      // or NO_UPDATE_NOTIFIER, which turn update notices off.
       ...Object.fromEntries(
-        Object.entries(process.env).filter(([key]) => !/^npm_/iu.test(key)),
+        Object.entries(process.env).filter(
+          ([key]) => !/^(?:npm_|CI$|NO_UPDATE_NOTIFIER$)/iu.test(key),
+        ),
       ),
       HOME: home,
       USERPROFILE: home,
@@ -62,6 +65,7 @@ function run(cwd, args, options = {}) {
       XDG_CONFIG_HOME: path.join(home, '.config'),
       APPDATA: path.join(home, 'AppData', 'Roaming'),
       NO_COLOR: '1',
+      ...options.env,
     },
     timeout: 60_000,
   });
@@ -207,8 +211,8 @@ describe('computer-level commands are never handed to a project', () => {
   });
 });
 
-describe('reminders through the real bin (FR10)', () => {
-  it('prints the project reminder once a day in text mode, and never with --json', () => {
+describe('update notices through the real bin (FR10)', () => {
+  it('prints the project notice after the command, once a day, never with --json, in CI, or with NO_UPDATE_NOTIFIER', () => {
     const [major, minor, patch] = CLI_VERSION.split(/[.-]/u).map(Number);
     const newest = `${major}.${minor}.${patch + 1}`;
     const root = project(tempDir(), {
@@ -220,20 +224,26 @@ describe('reminders through the real bin (FR10)', () => {
     writeJson(path.join(root, 'package-lock.json'), {lockfileVersion: 3});
     const cache = tempDir('cache');
     const home = tempDir('home');
-    fs.mkdirSync(path.join(cache, 'astryx'), {recursive: true});
-    fs.writeFileSync(
-      path.join(cache, 'astryx', 'global.json'),
-      JSON.stringify({latest: newest, checkOkAt: 1}),
-    );
-    const line = `astryx: this project uses Astryx ${CLI_VERSION}; ${newest} is the newest. To upgrade: npm install @astryxdesign/core@${newest} @astryxdesign/cli@${newest}, then npx astryx upgrade --from ${CLI_VERSION} --apply.`;
+    writeJson(path.join(home, '.config', 'astryx', 'state.json'), {
+      latest: newest,
+      checkOkAt: 1,
+    });
+    const notice = [
+      `A new release of Astryx is available: ${CLI_VERSION} → ${newest}`,
+      `To upgrade, run: npm install @astryxdesign/core@${newest} @astryxdesign/cli@${newest}, then npx astryx upgrade --from ${CLI_VERSION} --apply`,
+    ];
+    for (const env of [{CI: 'true'}, {NO_UPDATE_NOTIFIER: '1'}]) {
+      const off = run(root, ['--version'], {cache, home, env});
+      expect(off.stderr).not.toContain('A new release');
+    }
     const json = run(root, ['--version', '--json'], {cache, home});
     expect(json.status).toBe(0);
-    expect(json.stderr).not.toContain('this project uses');
+    expect(json.stderr).not.toContain('A new release');
     const first = run(root, ['--version'], {cache, home});
     expect(first.status).toBe(0);
-    expect(first.stderr.split('\n')).toContain(line);
     expect(first.stdout.trim()).toBe(CLI_VERSION);
+    expect(first.stderr.trim().split('\n').slice(-2)).toEqual(notice);
     const second = run(root, ['--version'], {cache, home});
-    expect(second.stderr).not.toContain('this project uses');
+    expect(second.stderr).not.toContain('A new release');
   });
 });

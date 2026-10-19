@@ -10,7 +10,6 @@ import {
   matchedVersionOf,
   namesWhoAnswered,
 } from './choose.mjs';
-import {updateGlobalState} from './global-state.mjs';
 import {
   cleanupFixtures,
   installCore,
@@ -272,45 +271,17 @@ describe("chooseRelease for a workspace's own CLI package", () => {
 });
 
 describe('chooseRelease outside a project', () => {
-  it('answers with the global copy until a newer release is kept', () => {
-    const empty = tempDir('empty');
-    const cacheDir = tempDir('cache');
-    const self = globalCopy('0.7.2');
-    expect(chooseRelease({cwd: empty, self, cacheDir})).toMatchObject({
-      copy: 'carried',
-      answer: 'self',
-      version: '0.7.2',
-    });
-    seedRelease(cacheDir, '0.7.3');
-    updateGlobalState({current: '0.7.3', previous: '0.7.2'}, cacheDir);
-    expect(chooseRelease({cwd: empty, self, cacheDir})).toMatchObject({
-      copy: 'carried',
-      answer: 'release',
-      version: '0.7.3',
-    });
-  });
-
-  it('falls back to the previous release when the current one is gone, unless the installed copy is newer', () => {
-    const empty = tempDir('empty');
-    const cacheDir = tempDir('cache');
-    seedRelease(cacheDir, '0.7.1');
-    updateGlobalState({current: '0.7.3', previous: '0.7.1'}, cacheDir);
-    expect(
-      chooseRelease({cwd: empty, self: globalCopy('0.7.0'), cacheDir}),
-    ).toMatchObject({answer: 'release', version: '0.7.1'});
-    expect(
-      chooseRelease({cwd: empty, self: globalCopy('0.7.2'), cacheDir}),
-    ).toMatchObject({answer: 'self', version: '0.7.2'});
-  });
-
-  it('never switches a package runner copy', () => {
+  it('answers with the running copy, the global copy included, whatever releases are cached', () => {
     const empty = tempDir('empty');
     const cacheDir = tempDir('cache');
     seedRelease(cacheDir, '0.7.3');
-    updateGlobalState({current: '0.7.3'}, cacheDir);
-    expect(
-      chooseRelease({cwd: empty, self: runnerCopy('0.7.0'), cacheDir}),
-    ).toMatchObject({answer: 'self', version: '0.7.0'});
+    for (const self of [globalCopy('0.7.2'), runnerCopy('0.7.0')]) {
+      expect(chooseRelease({cwd: empty, self, cacheDir})).toMatchObject({
+        copy: 'carried',
+        answer: 'self',
+        version: self.version,
+      });
+    }
   });
 });
 

@@ -11,7 +11,8 @@
 //   - which release answers in a project with its own CLI, a project with Core only, a fresh clone and an empty
 //     folder; the one-line "answered by" notice; --json output that is clean JSON with nothing on stderr;
 //   - that a fresh clone gets nothing written into it;
-//   - the background update switch (and the one-time notice) when the registry's latest tag moves;
+//   - the daily update check and its notice when the registry's latest tag names a newer release (it
+//     installs nothing, and the installed release keeps answering);
 //   - offline: ERR_VERSIONS_UNAVAILABLE, quickly, with JSON intact;
 //   - stopping a run in the middle of a release install (Ctrl-C, and killing the CLI process alone): which
 //     package-manager processes are left, and whether the next run recovers;
@@ -234,6 +235,11 @@ function startRegistry({latest = null, throttleBytesPerSec = 0} = {}) {
           };
           if (p.time)
             p.time[LABEL] = new Date(Date.now() - 3 * 86400e3).toISOString();
+          // A newer `latest` that the registry does not hold yet is listed as
+          // a copy of the branch release under that version, for notices.
+          if (latest && !p.versions[latest]) {
+            p.versions[latest] = {...p.versions[LABEL], version: latest};
+          }
           p['dist-tags'] = {...p['dist-tags'], latest: latest || LABEL};
         }
         if (m[2]) {
@@ -374,7 +380,12 @@ const CLI_ENTRY = path.join(
 function homeEnv(home, registry) {
   const env = {...process.env};
   for (const k of Object.keys(env))
-    if (/^(npm_|NPM_|XDG_CACHE_HOME$|ASTRYX)/.test(k)) delete env[k];
+    if (
+      /^(npm_|NPM_|XDG_CACHE_HOME$|XDG_CONFIG_HOME$|ASTRYX|CI$|NO_UPDATE_NOTIFIER$)/.test(
+        k,
+      )
+    )
+      delete env[k];
   const pathKey =
     Object.keys(env).find(k => k.toUpperCase() === 'PATH') || 'PATH';
   const oldPath = env[pathKey] || '';
@@ -400,6 +411,11 @@ function newHome(name) {
   fs.mkdirSync(path.join(h, 'AppData', 'Local'), {recursive: true});
   fs.mkdirSync(path.join(h, 'AppData', 'Roaming'), {recursive: true});
   return h;
+}
+function configDirOf(home) {
+  if (WIN) return path.join(home, 'AppData', 'Roaming', 'astryx');
+  if (MAC) return path.join(home, 'Library', 'Application Support', 'astryx');
+  return path.join(home, '.config', 'astryx');
 }
 function cacheDirOf(home) {
   if (WIN) return path.join(home, 'AppData', 'Local', 'astryx', 'Cache');
@@ -475,7 +491,11 @@ async function main() {
     `platform ${process.platform} ${os.release()} node ${process.version}; branch label ${LABEL}; work ${WORK}`,
   );
   const regMain = await startRegistry();
-  const regLatest071 = await startRegistry({latest: '0.7.1'});
+  const NEWER = LABEL.replace(
+    /^(\d+)\.(\d+)\..*$/,
+    (_, a, b) => `${a}.${Number(b) + 1}.0`,
+  );
+  const regNewer = await startRegistry({latest: NEWER});
   const regSlow = await startRegistry({throttleBytesPerSec: 20_000});
   const OFFLINE = 'http://127.0.0.1:9/';
   const npmV = await run(npmCmd, ['--version'], {
@@ -835,48 +855,66 @@ async function main() {
     );
   }
 
-  // background update switch (outside a project), last because it changes what answers outside projects
+  // the daily update check and its notice (outside a project), notify-only
   {
     const home = newHome('update');
-    const env1 = homeEnv(home, regLatest071.url);
+    const env1 = homeEnv(home, regNewer.url);
     await astryx(['--version'], {cwd: empty, env: env1});
-    const gfile = path.join(cacheDirOf(home), 'global.json');
+    const sfile = path.join(configDirOf(home), 'state.json');
     let st = {};
     try {
-      st = JSON.parse(fs.readFileSync(gfile, 'utf8'));
+      st = JSON.parse(fs.readFileSync(sfile, 'utf8'));
     } catch {}
-    st.firstRunAt = Date.now() - 2 * 3600e3;
-    fs.mkdirSync(path.dirname(gfile), {recursive: true});
-    fs.writeFileSync(gfile, JSON.stringify(st));
+    st.firstRunAt = Date.now() - 2 * 86400e3;
+    fs.mkdirSync(path.dirname(sfile), {recursive: true});
+    fs.writeFileSync(sfile, JSON.stringify(st));
     const kick = await astryx(['--version'], {cwd: empty, env: env1});
-    const lock = path.join(cacheDirOf(home), '.lock-check');
     const t = Date.now();
-    await sleep(2000);
-    while (fs.existsSync(lock) && Date.now() - t < 240_000) await sleep(1000);
-    await sleep(1500);
+    const latestOf = () => {
+      try {
+        return JSON.parse(fs.readFileSync(sfile, 'utf8')).latest;
+      } catch {
+        return undefined;
+      }
+    };
+    while (!latestOf() && Date.now() - t < 240_000) await sleep(1000);
     const js = await astryx(['search', 'button', '--json'], {
       cwd: empty,
       env: env1,
     });
+    const ci = await astryx(['--version'], {
+      cwd: empty,
+      env: {...env1, CI: 'true'},
+    });
     const a = await astryx(['--version'], {cwd: empty, env: env1});
     const b = await astryx(['--version'], {cwd: empty, env: env1});
-    const notice = whoLines(a.stderr).filter(l => l.includes('now using'));
+    const noticeOf = r =>
+      r.stderr
+        .split(/\r?\n/)
+        .filter(l => /^(A new release of Astryx|To upgrade, run:)/.test(l));
     ok(
       'update check does not slow the run that starts it',
       kick.secs < 10,
       `${kick.secs}s`,
     );
     ok(
-      'update: switches to the latest tag (0.7.1)',
-      lastLine(a.stdout) === '0.7.1',
-      `answered ${lastLine(a.stdout)}; state=${fs.existsSync(gfile) ? fs.readFileSync(gfile, 'utf8').slice(0, 200) : 'none'}`,
+      `update: the check finds ${NEWER}, installs nothing, and ${LABEL} keeps answering`,
+      latestOf() === NEWER &&
+        lastLine(a.stdout) === LABEL &&
+        !fs.existsSync(path.join(cacheDirOf(home), 'releases', NEWER)),
+      `latest=${latestOf()} answered ${lastLine(a.stdout)}`,
     );
     ok(
-      'update: one notice on the first text run, none in JSON, none after',
-      notice.length === 1 &&
+      'update: one two-line notice after the first text run; none in JSON, in CI, or after',
+      JSON.stringify(noticeOf(a)) ===
+        JSON.stringify([
+          `A new release of Astryx is available: ${LABEL} → ${NEWER}`,
+          'To upgrade, run: npm i -g @astryxdesign/cli@latest',
+        ]) &&
         js.stderr.trim() === '' &&
-        !whoLines(b.stderr).some(l => l.includes('now using')),
-      `notice=${JSON.stringify(notice)} json-stderr=${JSON.stringify(js.stderr.trim().slice(0, 100))}`,
+        noticeOf(ci).length === 0 &&
+        noticeOf(b).length === 0,
+      `notice=${JSON.stringify(noticeOf(a))} json-stderr=${JSON.stringify(js.stderr.trim().slice(0, 100))} ci=${noticeOf(ci).length} after=${noticeOf(b).length}`,
     );
   }
 }

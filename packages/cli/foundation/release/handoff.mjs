@@ -14,7 +14,10 @@
  *
  * In text mode a run that a copy other than the project's own CLI answers
  * prints one line on standard error naming the CLI and Core that answered; a
- * run with `--json` prints none and carries `meta.answeredBy` instead.
+ * run with `--json` prints none and carries `meta.answeredBy` instead. After a
+ * successful command, the copy that started the run prints any update notice
+ * (notices.mjs); a global copy also starts the daily update check, which
+ * installs nothing (global-state.mjs).
  *
  * @input  the running copy, argv, the working folder
  * @output returns when this copy answers; otherwise never returns
@@ -22,6 +25,7 @@
  */
 
 import {spawn} from 'node:child_process';
+import {writeSync} from 'node:fs';
 import {
   chooseRelease,
   isComputerLevel,
@@ -31,18 +35,11 @@ import {
   runningCopy,
 } from './choose.mjs';
 import {ensureRelease, userCacheDir} from './cache.mjs';
-import {
-  currentGlobalRelease,
-  maybeKeepAgentText,
-  maybeStartCheck,
-  readGlobalState,
-  updateGlobalState,
-} from './global-state.mjs';
+import {maybeKeepAgentText, maybeStartCheck} from './global-state.mjs';
 import {recordRunChoice} from './run-context.mjs';
-import {reminderLines} from './reminders.mjs';
+import {noticeLines} from './notices.mjs';
 
 /** Where each release's notes are published. */
-const RELEASE_NOTES = 'https://github.com/facebook/astryx/releases/tag/v';
 
 /**
  * The who-answered line for a run a copy other than the project's own CLI
@@ -120,26 +117,6 @@ function failUnavailable(message, json) {
 }
 
 /**
- * Print the global copy's pending switch notice once, in text mode.
- * @param {string} cacheDir
- * @param {string} selfVersion the installed copy, which answered before the
- *   first switch
- */
-function announceSwitch(cacheDir, selfVersion) {
-  const {notice} = readGlobalState(cacheDir);
-  if (!notice) return;
-  if (notice.to) {
-    const from = notice.from ?? selfVersion;
-    const was = from && from !== notice.to ? ` (was ${from})` : '';
-    console.error(
-      `astryx: now using ${notice.to}${was}. What changed: ${RELEASE_NOTES}${notice.to}`,
-    );
-    updateGlobalState({notice: null}, cacheDir);
-  }
-  // A newest release blocked by Node is FR10's reminder, not a notice.
-}
-
-/**
  * Choose who answers and hand off when it is not this copy.
  * @param {{cliRoot: string, argv: string[]}} input argv after `node astryx`
  * @returns {Promise<void>} resolves when this copy answers
@@ -151,22 +128,14 @@ export async function startRun({cliRoot, argv}) {
   const global = isGlobalCopy(cliRoot, cacheDir);
   if (global) {
     try {
-      maybeStartCheck({cacheDir});
+      maybeStartCheck();
     } catch {
       // A check that cannot start never fails a run.
     }
     try {
-      // The release that answers outside a project keeps the computer-level
-      // agent text on its own text (FR8).
-      const answering = currentGlobalRelease(cacheDir, {
-        selfVersion: self.version,
-      });
-      maybeKeepAgentText({
-        cacheDir,
-        release: answering
-          ? {version: answering.version, root: answering.cliDir}
-          : self,
-      });
+      // The global copy keeps the computer-level agent text on its own
+      // release's text, so it follows each upgrade of the copy (FR8).
+      maybeKeepAgentText({release: self});
     } catch {
       // Nor does the agent text.
     }
@@ -203,27 +172,30 @@ export async function startRun({cliRoot, argv}) {
     );
   }
 
-  if (!json && global && !choice.inProject)
-    announceSwitch(cacheDir, self.version);
-
-  /** FR10: at most one line per reminder a day, after the who-answered line. */
-  const remind = () => {
-    if (json) return;
-    for (const line of reminderLines({
-      cwd: process.cwd(),
-      self,
-      global,
-      choice: computer ? {...choice, inProject: false} : choice,
-      cacheDir,
-    })) {
-      console.error(line);
+  /** FR10: after a successful command, at most once a day per notice. */
+  const notify = () => {
+    try {
+      for (const line of noticeLines({
+        cwd: process.cwd(),
+        self,
+        choice: computer ? {...choice, inProject: false} : choice,
+        json,
+        cacheDir,
+      })) {
+        // Synchronous: the process is exiting.
+        writeSync(2, `${line}\n`);
+      }
+    } catch {
+      // A notice never fails a run.
     }
   };
   if (choice.answer === 'self') {
     recordRunChoice(choice);
     if (!json && choice.copy !== 'project')
       console.error(whoAnsweredLine(choice, computer));
-    remind();
+    process.once('exit', code => {
+      if (code === 0) notify();
+    });
     return;
   }
 
@@ -249,9 +221,8 @@ export async function startRun({cliRoot, argv}) {
       console.error(whoAnsweredLine(choice, computer));
     }
   }
-  remind();
 
-  await handOff(bin, argv, choice, json);
+  await handOff(bin, argv, choice, json, notify);
 }
 
 /**
@@ -260,9 +231,10 @@ export async function startRun({cliRoot, argv}) {
  * @param {string[]} argv
  * @param {import('./choose.mjs').ReleaseChoice} choice
  * @param {boolean} json
+ * @param {() => void} [notify] prints update notices after a successful run
  * @returns {Promise<never>}
  */
-function handOff(bin, argv, choice, json) {
+function handOff(bin, argv, choice, json, notify = () => {}) {
   return new Promise(() => {
     const child = spawn(process.execPath, [bin, ...argv], {
       stdio: 'inherit',
@@ -298,6 +270,7 @@ function handOff(bin, argv, choice, json) {
         process.kill(process.pid, signal);
         return;
       }
+      if (code === 0) notify();
       process.exit(code ?? 1);
     });
   });

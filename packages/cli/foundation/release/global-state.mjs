@@ -1,170 +1,134 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 /**
- * @file The global copy's update state, and the background check that keeps
- * it on the newest release.
+ * @file The per-user update state, and the background check that keeps it
+ * current (spec AST-081 FR6).
  *
- * A CLI installed for the computer answers outside a project with the release
- * the registry tags `latest` (spec AST-081 FR6). It never waits for that: a run
- * reads the state saved here, answers with the newest verified release it
- * already has, and, at most once an hour, starts a detached check that installs
- * a newer release into the cache for the next run. The release it switched
- * from stays in the cache, so a failed check, install, or start leaves the
- * last good release answering.
+ * The CLI never installs a newer release for the computer; it tells its user
+ * one exists, the way `gh` and the Vercel CLI do (notices.mjs). At most once a
+ * day, never in the first day after the first run, a run starts a detached
+ * check of the release the registry tags `latest`; no run waits for it. No
+ * check starts when the standard `CI` variable is set, or when
+ * `NO_UPDATE_NOTIFIER` is (update-notice-env.mjs).
  *
- *     <user cache>/astryx/global.json
- *       firstRunAt   when the global copy first ran (no check in the first hour)
+ *     <user config>/astryx/state.json
+ *       firstRunAt   when a run first kept this state (no check before a day)
  *       checkedAt    when the last check started
- *       latest       the version `latest` named at the last check
- *       current      the verified release outside-project runs answer with
- *       previous     the release before it
- *       notice       a switch not yet announced: {from, to}, or the newest
- *                    release blocked by Node: {blockedVersion, blockedReason}
  *       checkOkAt    when a check last reached the registry
+ *       latest       the version `latest` named then
+ *       latestNode   the Node range that release declares, or null
  *       agentText    the computer-level agent text: {writtenBy, attemptFor,
  *                    attemptAt}, the release that last wrote it and the last
  *                    background attempt (spec AST-081 FR8)
+ *       notifiedAt   when each update notice last printed (notices.mjs)
  *
  * @input  the clock, the registry's `latest` tag (in the worker)
- * @output which cached release answers outside a project
- * @position foundation/release — read by the bin; the check runs in
- *   refresh-worker.mjs.
+ * @output the newest release known, for notices and doctor
+ * @position foundation/release — read by the bin and doctor; the check runs
+ *   in refresh-worker.mjs.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {
-  userCacheDir,
-  cachedRelease,
-  ensureRelease,
-  keptReleaseVersions,
-  releaseSupportsNode,
-  resolvePublishedVersion,
-  tryLock,
-  isReleaseVersion,
-} from './cache.mjs';
-import {semverCompare} from '../env/semver.mjs';
-import {computerAgentTextSettings} from '../env/user-settings.mjs';
+import {resolveLatestRelease, tryLock, isReleaseVersion} from './cache.mjs';
 import {readJson} from './project.mjs';
+import {userConfigDir} from '../env/user-dirs.mjs';
+import {computerAgentTextSettings} from '../env/user-settings.mjs';
+import {updateNoticesOff} from './update-notice-env.mjs';
 
-/** The shortest time between two checks of the `latest` tag. */
-export const CHECK_INTERVAL_MS = 60 * 60_000;
-
-/**
- * @typedef {object} GlobalNotice
- * @property {string} [from] the release that answered before
- * @property {string} [to] the release that answers now
- * @property {string} [blockedVersion] a newer release this computer's Node cannot run
- * @property {string} [blockedReason] why
- * @property {boolean} [announced] the blocked release was already reported
- */
+/** How often a check may start: once a day, as `gh` and update-notifier do. */
+export const CHECK_INTERVAL_MS = 24 * 60 * 60_000;
 
 /**
  * @typedef {object} GlobalState
  * @property {number} [firstRunAt]
  * @property {number} [checkedAt]
- * @property {string} [latest]
- * @property {string} [current]
- * @property {string} [previous]
- * @property {GlobalNotice | null} [notice]
  * @property {number} [checkOkAt]
+ * @property {string} [latest]
+ * @property {string | null} [latestNode]
  * @property {{writtenBy?: string, attemptFor?: string, attemptAt?: number}} [agentText]
+ * @property {Record<string, number>} [notifiedAt] when each update notice
+ *   last printed (notices.mjs)
  */
 
 /**
  * The state file.
- * @param {string} [cacheDir]
+ * @param {string} [stateDir] the per-user configuration folder
  * @returns {string}
  */
-export function stateFile(cacheDir = userCacheDir()) {
-  return path.join(cacheDir, 'global.json');
+export function stateFile(stateDir = userConfigDir()) {
+  return path.join(stateDir, 'state.json');
 }
 
 /**
- * Read the saved state; an absent or broken file is an empty state.
- * @param {string} [cacheDir]
+ * The saved state; `{}` when there is none or it cannot be read.
+ * @param {string} [stateDir]
  * @returns {GlobalState}
  */
-export function readGlobalState(cacheDir = userCacheDir()) {
-  const state = readJson(stateFile(cacheDir));
+export function readGlobalState(stateDir = userConfigDir()) {
+  const state = readJson(stateFile(stateDir));
   return state && typeof state === 'object' && !Array.isArray(state)
     ? state
     : {};
 }
 
 /**
- * Save the state atomically, merging `patch` into what is on disk now.
+ * Merge `patch` into the saved state, atomically. An unwritable folder never
+ * fails a run.
  * @param {Partial<GlobalState>} patch
- * @param {string} [cacheDir]
+ * @param {string} [stateDir]
  * @returns {GlobalState}
  */
-export function updateGlobalState(patch, cacheDir = userCacheDir()) {
-  const next = {...readGlobalState(cacheDir), ...patch};
-  const file = stateFile(cacheDir);
+export function updateGlobalState(patch, stateDir = userConfigDir()) {
+  const next = {...readGlobalState(stateDir), ...patch};
+  const file = stateFile(stateDir);
   try {
     fs.mkdirSync(path.dirname(file), {recursive: true});
     const tmp = `${file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);
     fs.renameSync(tmp, file);
   } catch {
-    // An unwritable cache never fails a run; the state is simply not kept.
+    // An unwritable folder never fails a run; the state is simply not kept.
   }
   return next;
 }
 
 /**
- * The newest release the global copy knows of, for `doctor`.
- * @param {string} [cacheDir]
- * @returns {string | null}
+ * The newest release the last check found, and the Node range it declares;
+ * null when no check has reached the registry.
+ * @param {string} [stateDir]
+ * @returns {{version: string, node: string | null} | null}
  */
-export function knownLatestRelease(cacheDir = userCacheDir()) {
-  const {latest} = readGlobalState(cacheDir);
-  return isReleaseVersion(latest) ? latest : null;
+export function knownLatest(stateDir = userConfigDir()) {
+  const state = readGlobalState(stateDir);
+  if (typeof state.checkOkAt !== 'number' || !isReleaseVersion(state.latest)) {
+    return null;
+  }
+  return {
+    version: state.latest,
+    node: typeof state.latestNode === 'string' ? state.latestNode : null,
+  };
 }
 
 /**
- * The cached release the global copy answers with outside a project, or
- * `null` when the installed copy answers itself.
- *
- * The saved current release answers when it is verified and runs on this
- * Node. Otherwise (it has gone missing, or a version manager switched to a
- * Node it does not support) the newest verified release no newer than it
- * that runs on this Node answers, unless the installed copy is newer still
- * (spec AST-081 FR6).
- * @param {string} [cacheDir]
- * @param {{nodeVersion?: string, selfVersion?: string}} [options]
- * @returns {import('./cache.mjs').CachedRelease | null}
+ * The version of the newest release known, or null.
+ * @param {string} [stateDir]
+ * @returns {string | null}
  */
-export function currentGlobalRelease(cacheDir = userCacheDir(), options = {}) {
-  const {nodeVersion = process.versions.node, selfVersion} = options;
-  const state = readGlobalState(cacheDir);
-  const ceiling = [state.current, state.previous].find(isReleaseVersion);
-  if (!ceiling) return null;
-  const current = isReleaseVersion(state.current)
-    ? cachedRelease(state.current, cacheDir)
-    : null;
-  if (current && releaseSupportsNode(current, nodeVersion)) return current;
-  const candidates = keptReleaseVersions(cacheDir)
-    .filter(v => !v.includes('-') && semverCompare(v, ceiling) <= 0)
-    .sort((a, b) => semverCompare(b, a));
-  for (const version of candidates) {
-    if (selfVersion && semverCompare(selfVersion, version) >= 0) return null;
-    const release = cachedRelease(version, cacheDir);
-    if (release && releaseSupportsNode(release, nodeVersion)) return release;
-  }
-  return null;
+export function knownLatestRelease(stateDir = userConfigDir()) {
+  return knownLatest(stateDir)?.version ?? null;
 }
 
 /**
  * Record the release that last wrote the computer-level agent text.
  * @param {string | null} version
- * @param {string} [cacheDir]
+ * @param {string} [stateDir]
  */
-export function recordAgentTextWritten(version, cacheDir = userCacheDir()) {
+export function recordAgentTextWritten(version, stateDir = userConfigDir()) {
   if (!isReleaseVersion(version)) return;
-  updateGlobalState({agentText: {writtenBy: version}}, cacheDir);
+  updateGlobalState({agentText: {writtenBy: version}}, stateDir);
 }
 
 /** A background attempt to write the agent text is retried after an hour. */
@@ -172,29 +136,29 @@ export const AGENT_TEXT_RETRY_MS = 60 * 60_000;
 
 /**
  * The global copy keeps the computer-level agent text installed (spec
- * AST-081 FR8): when the person has not turned it off and the release the
- * global copy answers with outside a project has not written it yet, that
- * release's own background step writes it, detached, so no command waits.
- * Returns whether a step was started.
+ * AST-081 FR8): when the person has not turned it off and the running global
+ * version has not written it yet, as after the person upgraded the global
+ * copy, that release's own background step writes it, detached, so no command
+ * waits. Returns whether a step was started.
  *
  * @param {{
  *   release: {version: string, root: string},
- *   cacheDir?: string,
+ *   stateDir?: string,
  *   configDir?: string,
  *   now?: number,
- *   start?: (worker: string, cacheDir: string) => void,
+ *   start?: (worker: string, stateDir: string) => void,
  * }} options
  * @returns {boolean}
  */
 export function maybeKeepAgentText({
   release,
-  cacheDir = userCacheDir(),
+  stateDir = userConfigDir(),
   configDir,
   now = Date.now(),
   start = startWorker,
 }) {
   if (!computerAgentTextSettings(configDir).install) return false;
-  const {agentText} = readGlobalState(cacheDir);
+  const {agentText} = readGlobalState(stateDir);
   if (agentText?.writtenBy === release.version) return false;
   if (
     agentText?.attemptFor === release.version &&
@@ -213,50 +177,61 @@ export function maybeKeepAgentText({
   if (!fs.existsSync(worker)) return false;
   updateGlobalState(
     {agentText: {...agentText, attemptFor: release.version, attemptAt: now}},
-    cacheDir,
+    stateDir,
   );
   // An attempt that cannot be recorded would start again on every run.
-  if (readGlobalState(cacheDir).agentText?.attemptAt !== now) return false;
-  start(worker, cacheDir);
+  if (readGlobalState(stateDir).agentText?.attemptAt !== now) return false;
+  start(worker, stateDir);
   return true;
 }
 
 /**
- * Start the background check when one is due: never in the first hour after
- * the global copy's first run, then at most once an hour. The check runs in a
- * detached process with no output, so this returns at once.
- * @param {{cacheDir?: string, now?: number, start?: (worker: string, cacheDir: string) => void}} [options]
- * @returns {boolean} whether a check was started
+ * Start the background check when one is due: never when the environment
+ * turns update notices off (`CI`, `NO_UPDATE_NOTIFIER`), never in the first
+ * day after the first run, and at most once a day. Returns whether a check
+ * was started.
+ *
+ * @param {{
+ *   stateDir?: string,
+ *   now?: number,
+ *   env?: Record<string, string | undefined>,
+ *   start?: (worker: string, stateDir: string) => void,
+ * }} [options]
+ * @returns {boolean}
  */
 export function maybeStartCheck(options = {}) {
   const {
-    cacheDir = userCacheDir(),
+    stateDir = userConfigDir(),
     now = Date.now(),
+    env = process.env,
     start = startWorker,
   } = options;
-  const state = readGlobalState(cacheDir);
+  if (updateNoticesOff(env)) return false;
+  const state = readGlobalState(stateDir);
   if (typeof state.firstRunAt !== 'number') {
-    updateGlobalState({firstRunAt: now}, cacheDir);
+    updateGlobalState({firstRunAt: now}, stateDir);
     return false;
   }
   const last = Math.max(state.firstRunAt, state.checkedAt ?? 0);
   if (now - last < CHECK_INTERVAL_MS) return false;
-  updateGlobalState({checkedAt: now}, cacheDir);
+  updateGlobalState({checkedAt: now}, stateDir);
+  // A start time that cannot be recorded would start a check on every run.
+  if (readGlobalState(stateDir).checkedAt !== now) return false;
   start(
     fileURLToPath(new URL('./refresh-worker.mjs', import.meta.url)),
-    cacheDir,
+    stateDir,
   );
   return true;
 }
 
 /**
- * Start the check detached from this run.
+ * Start a detached worker that outlives this run and reaches no stream.
  * @param {string} worker
- * @param {string} cacheDir
+ * @param {string} stateDir
  */
-function startWorker(worker, cacheDir) {
+function startWorker(worker, stateDir) {
   try {
-    const child = spawn(process.execPath, [worker, cacheDir], {
+    const child = spawn(process.execPath, [worker, stateDir], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
@@ -269,47 +244,25 @@ function startWorker(worker, cacheDir) {
 }
 
 /**
- * The check itself: ask the registry for `latest`, install and verify it in
- * the cache, then make it current. Only one check runs at a time. Called by
- * refresh-worker.mjs; exported for tests.
- * @param {{cacheDir?: string, run?: import('./cache.mjs').runNpm, resolve?: typeof resolvePublishedVersion, ensure?: typeof ensureRelease}} [options]
+ * The check itself: ask the registry for `latest` and save what it says. It
+ * installs nothing. At most one check runs at a time.
+ * @param {{stateDir?: string, resolve?: typeof resolveLatestRelease}} [options]
  * @returns {GlobalState}
  */
 export function runCheck(options = {}) {
-  const {
-    cacheDir = userCacheDir(),
-    resolve = resolvePublishedVersion,
-    ensure = ensureRelease,
-  } = options;
-  const lockDir = path.join(cacheDir, '.lock-check');
-  if (!tryLock(lockDir)) return readGlobalState(cacheDir);
+  const {stateDir = userConfigDir(), resolve = resolveLatestRelease} = options;
+  const lockDir = path.join(stateDir, '.lock-check');
   try {
-    const latest = resolve('@astryxdesign/cli', 'latest');
-    if (!latest) return readGlobalState(cacheDir);
-    const state = updateGlobalState({latest, checkOkAt: Date.now()}, cacheDir);
-    if (state.current === latest && cachedRelease(latest, cacheDir)) {
-      return state;
-    }
-    const release = ensure(latest, {cacheDir});
-    if (!('bin' in release)) {
-      if (/needs Node/.test(release.reason)) {
-        const announced = state.notice?.blockedVersion === latest;
-        return announced
-          ? state
-          : updateGlobalState(
-              {notice: {blockedVersion: latest, blockedReason: release.reason}},
-              cacheDir,
-            );
-      }
-      return state;
-    }
+    if (!tryLock(lockDir)) return readGlobalState(stateDir);
+  } catch {
+    return readGlobalState(stateDir);
+  }
+  try {
+    const latest = resolve();
+    if (!latest) return readGlobalState(stateDir);
     return updateGlobalState(
-      {
-        current: latest,
-        previous: state.current ?? undefined,
-        notice: {from: state.current, to: latest},
-      },
-      cacheDir,
+      {latest: latest.version, latestNode: latest.node, checkOkAt: Date.now()},
+      stateDir,
     );
   } finally {
     fs.rmSync(lockDir, {recursive: true, force: true});

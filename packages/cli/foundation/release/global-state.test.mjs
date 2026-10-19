@@ -8,194 +8,140 @@ import {fileURLToPath} from 'node:url';
 import {
   AGENT_TEXT_RETRY_MS,
   CHECK_INTERVAL_MS,
-  currentGlobalRelease,
-  maybeKeepAgentText,
-  recordAgentTextWritten,
+  knownLatest,
   knownLatestRelease,
+  maybeKeepAgentText,
   maybeStartCheck,
   readGlobalState,
+  recordAgentTextWritten,
   runCheck,
+  stateFile,
   updateGlobalState,
 } from './global-state.mjs';
 import {
   CLI_VERSION,
   cleanupFixtures,
-  seedRelease,
   tempDir,
 } from '../../test-utils/release-fixtures.mjs';
 import {recordComputerAgentTextSettings} from '../env/user-settings.mjs';
 import {userConfigDir} from '../env/user-dirs.mjs';
 import {renderComputerAgentText} from '../agent-docs/computer-agent-text.mjs';
+import {isCi, updateNoticesOff} from './update-notice-env.mjs';
 
 afterEach(cleanupFixtures);
 
 describe('maybeStartCheck', () => {
-  it('never checks in the first hour, then at most once an hour', () => {
-    const cacheDir = tempDir('cache');
+  it('never checks in the first day, then at most once a day', () => {
+    const stateDir = tempDir('state');
     /** @type {number[]} */
     const started = [];
     const start = () => started.push(1);
+    const env = {};
     const t0 = 1_000_000;
-    expect(maybeStartCheck({cacheDir, now: t0, start})).toBe(false);
+    expect(CHECK_INTERVAL_MS).toBe(24 * 60 * 60_000);
+    expect(maybeStartCheck({stateDir, env, now: t0, start})).toBe(false);
     expect(
-      maybeStartCheck({cacheDir, now: t0 + CHECK_INTERVAL_MS - 1, start}),
+      maybeStartCheck({stateDir, env, now: t0 + CHECK_INTERVAL_MS - 1, start}),
     ).toBe(false);
     expect(
-      maybeStartCheck({cacheDir, now: t0 + CHECK_INTERVAL_MS, start}),
+      maybeStartCheck({stateDir, env, now: t0 + CHECK_INTERVAL_MS, start}),
     ).toBe(true);
     expect(
-      maybeStartCheck({cacheDir, now: t0 + CHECK_INTERVAL_MS + 10, start}),
+      maybeStartCheck({stateDir, env, now: t0 + CHECK_INTERVAL_MS + 10, start}),
     ).toBe(false);
     expect(
-      maybeStartCheck({cacheDir, now: t0 + 2 * CHECK_INTERVAL_MS, start}),
+      maybeStartCheck({stateDir, env, now: t0 + 2 * CHECK_INTERVAL_MS, start}),
     ).toBe(true);
     expect(started).toHaveLength(2);
+    expect(stateFile(stateDir)).toBe(path.join(stateDir, 'state.json'));
+  });
+
+  it.each([
+    [{CI: 'true'}],
+    [{CI: '1'}],
+    [{NO_UPDATE_NOTIFIER: ''}],
+    [{NO_UPDATE_NOTIFIER: '1'}],
+  ])('never checks, nor writes state, with %o', env => {
+    const stateDir = tempDir('state');
+    updateGlobalState({firstRunAt: 0}, stateDir);
+    const start = () => {
+      throw new Error('started');
+    };
+    expect(
+      maybeStartCheck({stateDir, env, now: 10 * CHECK_INTERVAL_MS, start}),
+    ).toBe(false);
+    expect(readGlobalState(stateDir)).toEqual({firstRunAt: 0});
+  });
+
+  it('starts nothing when its start time cannot be recorded', () => {
+    const stateDir = path.join(tempDir('state'), 'file');
+    fs.writeFileSync(stateDir, '');
+    const start = () => {
+      throw new Error('started');
+    };
+    expect(maybeStartCheck({stateDir, env: {}, now: 1, start})).toBe(false);
+    expect(maybeStartCheck({stateDir, env: {}, now: 1e12, start})).toBe(false);
+  });
+});
+
+describe('update-notice-env', () => {
+  it('reads CI the usual way, and NO_UPDATE_NOTIFIER as set or not', () => {
+    for (const value of ['true', '1', 'yes', 'github']) {
+      expect(isCi({CI: value})).toBe(true);
+    }
+    for (const value of [undefined, '', '0', 'false', 'FALSE']) {
+      expect(isCi({CI: value})).toBe(false);
+    }
+    expect(updateNoticesOff({})).toBe(false);
+    expect(updateNoticesOff({NO_UPDATE_NOTIFIER: ''})).toBe(true);
   });
 });
 
 describe('runCheck', () => {
-  it('installs a new latest, keeps the previous one, and leaves a notice', () => {
-    const cacheDir = tempDir('cache');
-    seedRelease(cacheDir, '0.7.2');
-    updateGlobalState({current: '0.7.2'}, cacheDir);
+  it('records the newest release and its Node range, and installs nothing', () => {
+    const stateDir = tempDir('state');
     const state = runCheck({
-      cacheDir,
-      resolve: () => '0.7.3',
-      ensure: version => {
-        const dir = seedRelease(cacheDir, version);
-        return {version, dir, cliDir: dir, coreDir: dir, bin: dir};
-      },
+      stateDir,
+      resolve: () => ({version: '0.7.3', node: '>=24'}),
     });
-    expect(state).toMatchObject({
-      latest: '0.7.3',
-      current: '0.7.3',
-      previous: '0.7.2',
-      notice: {from: '0.7.2', to: '0.7.3'},
-    });
-    expect(currentGlobalRelease(cacheDir)?.version).toBe('0.7.3');
-    expect(knownLatestRelease(cacheDir)).toBe('0.7.3');
+    expect(state).toMatchObject({latest: '0.7.3', latestNode: '>=24'});
+    expect(typeof state.checkOkAt).toBe('number');
+    expect(knownLatest(stateDir)).toEqual({version: '0.7.3', node: '>=24'});
+    expect(knownLatestRelease(stateDir)).toBe('0.7.3');
+    expect(fs.readdirSync(stateDir).sort()).toEqual(['state.json']);
   });
 
-  it('follows the tag back down', () => {
-    const cacheDir = tempDir('cache');
-    seedRelease(cacheDir, '0.8.0');
-    updateGlobalState({current: '0.8.0', latest: '0.8.0'}, cacheDir);
-    runCheck({
-      cacheDir,
-      resolve: () => '0.7.9',
-      ensure: version => {
-        const dir = seedRelease(cacheDir, version);
-        return {version, dir, cliDir: dir, coreDir: dir, bin: dir};
-      },
-    });
-    expect(readGlobalState(cacheDir)).toMatchObject({
-      current: '0.7.9',
-      previous: '0.8.0',
-    });
+  it('changes nothing when the registry cannot be reached', () => {
+    const stateDir = tempDir('state');
+    updateGlobalState({firstRunAt: 1}, stateDir);
+    expect(runCheck({stateDir, resolve: () => null})).toEqual({firstRunAt: 1});
+    expect(knownLatest(stateDir)).toBeNull();
   });
 
-  it('keeps the current release when the registry or the install fails', () => {
-    const cacheDir = tempDir('cache');
-    seedRelease(cacheDir, '0.7.2');
-    updateGlobalState({current: '0.7.2'}, cacheDir);
-    runCheck({cacheDir, resolve: () => null});
-    runCheck({
-      cacheDir,
-      resolve: () => '0.7.3',
-      ensure: version => ({
-        version,
-        reason: 'the registry could not be reached',
-      }),
-    });
-    expect(readGlobalState(cacheDir)).toMatchObject({
-      current: '0.7.2',
-      latest: '0.7.3',
-    });
-    expect(readGlobalState(cacheDir).notice ?? null).toBeNull();
-  });
-
-  it('says once that a release needs a newer Node, and stays', () => {
-    const cacheDir = tempDir('cache');
-    seedRelease(cacheDir, '0.7.2');
-    updateGlobalState({current: '0.7.2'}, cacheDir);
-    const ensure = (/** @type {string} */ version) => ({
-      version,
-      reason: 'it needs Node >=24, and this computer runs Node 22.13.0',
-    });
-    runCheck({cacheDir, resolve: () => '0.8.0', ensure});
-    expect(readGlobalState(cacheDir)).toMatchObject({
-      current: '0.7.2',
-      notice: {blockedVersion: '0.8.0'},
-    });
-  });
-
-  it('does nothing while another check runs', () => {
-    const cacheDir = tempDir('cache');
-    updateGlobalState({current: '0.7.2'}, cacheDir);
-    let asked = false;
-    runCheck({
-      cacheDir,
-      resolve: () => {
-        // A second check started while this one holds the lock.
-        runCheck({
-          cacheDir,
-          resolve: () => {
-            asked = true;
-            return '9.9.9';
-          },
-        });
-        return null;
-      },
-    });
-    expect(asked).toBe(false);
-  });
-});
-
-describe('currentGlobalRelease on another Node', () => {
-  it('answers with the newest kept release that runs on this Node, else the installed copy', () => {
-    const cacheDir = tempDir('cache');
-    seedRelease(cacheDir, '0.7.1');
-    seedRelease(cacheDir, '0.7.2', {engines: {node: '>=20'}});
-    seedRelease(cacheDir, '0.8.0', {engines: {node: '>=24'}});
-    updateGlobalState({current: '0.8.0', previous: '0.7.2'}, cacheDir);
-    expect(
-      currentGlobalRelease(cacheDir, {nodeVersion: '24.1.0'})?.version,
-    ).toBe('0.8.0');
-    expect(
-      currentGlobalRelease(cacheDir, {nodeVersion: '22.13.0'})?.version,
-    ).toBe('0.7.2');
-    expect(
-      currentGlobalRelease(cacheDir, {nodeVersion: '18.0.0'})?.version,
-    ).toBe('0.7.1');
-    // The installed copy is newer than every kept release that runs here.
-    expect(
-      currentGlobalRelease(cacheDir, {
-        nodeVersion: '22.13.0',
-        selfVersion: '0.7.5',
-      }),
-    ).toBeNull();
+  it('keeps the state in the per-user configuration folder', () => {
+    expect(path.dirname(stateFile())).toBe(userConfigDir());
   });
 });
 
 describe('maybeKeepAgentText', () => {
-  /** @param {string} cacheDir */
-  const setup = cacheDir => {
+  /** @param {string} stateDir */
+  const setup = stateDir => {
     const root = tempDir('cli');
     fs.mkdirSync(path.join(root, 'foundation', 'release'), {recursive: true});
     fs.writeFileSync(
       path.join(root, 'foundation', 'release', 'agent-text-worker.mjs'),
       '',
     );
-    return {release: {version: '0.8.0', root}, cacheDir};
+    return {release: {version: '0.8.0', root}, stateDir};
   };
 
   it("starts the answering release's step once per release, retrying after an hour", () => {
-    const cacheDir = tempDir('cache');
+    const stateDir = tempDir('state');
     const configDir = tempDir('config');
     /** @type {string[]} */
     const started = [];
     const start = (/** @type {string} */ worker) => started.push(worker);
-    const base = {...setup(cacheDir), configDir, start};
+    const base = {...setup(stateDir), configDir, start};
     expect(maybeKeepAgentText({...base, now: 1000})).toBe(true);
     expect(started[0]).toBe(
       path.join(
@@ -209,7 +155,7 @@ describe('maybeKeepAgentText', () => {
     expect(maybeKeepAgentText({...base, now: 1000 + AGENT_TEXT_RETRY_MS})).toBe(
       true,
     );
-    recordAgentTextWritten('0.8.0', cacheDir);
+    recordAgentTextWritten('0.8.0', stateDir);
     expect(
       maybeKeepAgentText({...base, now: 1000 + 3 * AGENT_TEXT_RETRY_MS}),
     ).toBe(false);
@@ -225,20 +171,20 @@ describe('maybeKeepAgentText', () => {
   });
 
   it('starts nothing after the person turned the text off, or for a release without the step', () => {
-    const cacheDir = tempDir('cache');
+    const stateDir = tempDir('state');
     const configDir = tempDir('config');
     const start = () => {
       throw new Error('started');
     };
     recordComputerAgentTextSettings({install: false, agents: null}, configDir);
-    expect(maybeKeepAgentText({...setup(cacheDir), configDir, start})).toBe(
+    expect(maybeKeepAgentText({...setup(stateDir), configDir, start})).toBe(
       false,
     );
     const other = tempDir('config');
     expect(
       maybeKeepAgentText({
         release: {version: '0.7.0', root: tempDir('old')},
-        cacheDir,
+        stateDir,
         configDir: other,
         start,
       }),
@@ -246,14 +192,14 @@ describe('maybeKeepAgentText', () => {
   });
 
   it('starts nothing when the attempt cannot be recorded', () => {
-    const cacheDir = path.join(tempDir('cache'), 'file');
-    fs.writeFileSync(cacheDir, '');
+    const stateDir = path.join(tempDir('state'), 'file');
+    fs.writeFileSync(stateDir, '');
     const start = () => {
       throw new Error('started');
     };
     expect(
       maybeKeepAgentText({
-        ...setup(cacheDir),
+        ...setup(stateDir),
         configDir: tempDir('config'),
         start,
       }),
@@ -264,7 +210,7 @@ describe('maybeKeepAgentText', () => {
 describe('agent-text-worker.mjs', () => {
   it('writes the chosen files with this release and records it, keeping an edited file', () => {
     const home = tempDir('home');
-    const cacheDir = path.join(home, '.cache', 'astryx');
+    const stateDir = path.join(home, '.config', 'astryx');
     const env = {
       ...process.env,
       HOME: home,
@@ -281,7 +227,7 @@ describe('agent-text-worker.mjs', () => {
       new URL('./agent-text-worker.mjs', import.meta.url),
     );
     const run = () =>
-      spawnSync(process.execPath, [worker, cacheDir], {env, encoding: 'utf8'});
+      spawnSync(process.execPath, [worker, stateDir], {env, encoding: 'utf8'});
     const first = run();
     expect(first.status).toBe(0);
     expect(first.stdout + first.stderr).toBe('');
@@ -292,7 +238,7 @@ describe('agent-text-worker.mjs', () => {
     expect(
       fs.existsSync(path.join(home, '.agents', 'skills', 'astryx', 'SKILL.md')),
     ).toBe(false);
-    expect(readGlobalState(cacheDir).agentText).toEqual({
+    expect(readGlobalState(stateDir).agentText).toEqual({
       writtenBy: CLI_VERSION,
     });
     fs.appendFileSync(claude, 'mine\n');

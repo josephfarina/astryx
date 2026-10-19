@@ -1,0 +1,302 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+
+/**
+ * @file Update notices (spec AST-081 FR10): when each one applies, its exact
+ * two lines, the upgrade command for each package manager, and that it prints
+ * at most once a day and never when the environment turns notices off.
+ */
+
+import {afterEach, describe, expect, it} from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import {
+  NOTICE_INTERVAL_MS,
+  availableLine,
+  globalBehind,
+  globalUpgradeCommand,
+  noticeLines,
+  oldGlobalCommand,
+  oldGlobalLines,
+  projectLag,
+  takeNotice,
+  upgradeLine,
+} from './notices.mjs';
+import {readGlobalState, updateGlobalState} from './global-state.mjs';
+import {
+  cleanupFixtures,
+  installCore,
+  installStandInCli,
+  project,
+  tempDir,
+  writeJson,
+} from '../../test-utils/release-fixtures.mjs';
+
+afterEach(cleanupFixtures);
+
+const DAY = 24 * 60 * 60_000;
+
+/**
+ * An Astryx CLI package on a search path folder, with or without the hand-off.
+ * @param {string} version
+ * @param {{handsOff?: boolean, prefix?: string[]}} [options]
+ */
+function cliOnPath(version, {handsOff = false, prefix = ['lib']} = {}) {
+  const root = tempDir('prefix');
+  const pkg = path.join(
+    root,
+    ...prefix,
+    'node_modules',
+    '@astryxdesign',
+    'cli',
+  );
+  fs.mkdirSync(pkg, {recursive: true});
+  writeJson(path.join(pkg, 'package.json'), {
+    name: '@astryxdesign/cli',
+    version,
+  });
+  fs.writeFileSync(path.join(pkg, 'bin.mjs'), '#!/usr/bin/env node\n');
+  fs.chmodSync(path.join(pkg, 'bin.mjs'), 0o755);
+  if (handsOff) {
+    fs.mkdirSync(path.join(pkg, 'foundation', 'release'), {recursive: true});
+    fs.writeFileSync(path.join(pkg, 'foundation', 'release', 'choose.mjs'), '');
+  }
+  fs.mkdirSync(path.join(root, 'bin'));
+  fs.symlinkSync(path.join(pkg, 'bin.mjs'), path.join(root, 'bin', 'astryx'));
+  return {bin: path.join(root, 'bin'), pkg};
+}
+
+/** A state folder whose last check found `version`, needing Node `node`. */
+function checked(version = '0.7.3', node = null) {
+  const stateDir = tempDir('state');
+  updateGlobalState(
+    {latest: version, latestNode: node, checkOkAt: 1},
+    stateDir,
+  );
+  return stateDir;
+}
+
+describe('takeNotice', () => {
+  it('lets a notice print once in any 24 hours, per key', () => {
+    const stateDir = tempDir('state');
+    expect(takeNotice('a', {stateDir, now: 1000})).toBe(true);
+    expect(takeNotice('a', {stateDir, now: 1000 + DAY - 1})).toBe(false);
+    expect(takeNotice('b', {stateDir, now: 2000})).toBe(true);
+    expect(takeNotice('a', {stateDir, now: 1000 + NOTICE_INTERVAL_MS})).toBe(
+      true,
+    );
+    expect(readGlobalState(stateDir).notifiedAt).toEqual({
+      a: 1000 + NOTICE_INTERVAL_MS,
+      b: 2000,
+    });
+  });
+
+  it('prints nothing when the time cannot be recorded', () => {
+    const file = path.join(tempDir('state'), 'file');
+    fs.writeFileSync(file, '');
+    expect(takeNotice('a', {stateDir: file, now: 1})).toBe(false);
+  });
+});
+
+describe('the lines', () => {
+  it('match the gh form, naming the Node a release needs', () => {
+    expect(availableLine('0.7.2', '0.7.3')).toBe(
+      'A new release of Astryx is available: 0.7.2 → 0.7.3',
+    );
+    expect(
+      upgradeLine('npm i -g @astryxdesign/cli@latest', '>=20', '22.0.0'),
+    ).toBe('To upgrade, run: npm i -g @astryxdesign/cli@latest');
+    expect(
+      upgradeLine('npm i -g @astryxdesign/cli@latest', '>=24', '22.13.0'),
+    ).toBe(
+      'To upgrade, install Node >=24 (this computer runs Node 22.13.0), then run: npm i -g @astryxdesign/cli@latest',
+    );
+  });
+
+  it('name the package manager that installed the global copy', () => {
+    const at = (/** @type {string} */ p) =>
+      globalUpgradeCommand(path.join(path.sep, ...p.split('/')));
+    expect(at('usr/local/lib/node_modules/@astryxdesign/cli')).toBe(
+      'npm i -g @astryxdesign/cli@latest',
+    );
+    expect(
+      at('home/a/.local/share/pnpm/global/5/node_modules/@astryxdesign/cli'),
+    ).toBe('pnpm add -g @astryxdesign/cli@latest');
+    expect(at('home/a/pn/global/v11/3f2a/node_modules/@astryxdesign/cli')).toBe(
+      'pnpm add -g @astryxdesign/cli@latest',
+    );
+    expect(
+      at('home/a/.config/yarn/global/node_modules/@astryxdesign/cli'),
+    ).toBe('yarn global add @astryxdesign/cli@latest');
+    expect(
+      at('home/a/.bun/install/global/node_modules/@astryxdesign/cli'),
+    ).toBe('bun add -g @astryxdesign/cli@latest');
+    expect(
+      at(
+        'home/a/.volta/tools/image/packages/@astryxdesign/cli/lib/node_modules/@astryxdesign/cli',
+      ),
+    ).toBe('volta install @astryxdesign/cli@latest');
+  });
+});
+
+describe('globalBehind and projectLag', () => {
+  it('need a completed check, and never report a current, newer, or prerelease version', () => {
+    const self = {
+      version: '0.7.2',
+      root: '/usr/lib/node_modules/@astryxdesign/cli',
+    };
+    expect(globalBehind({self, stateDir: tempDir('state')})).toBeNull();
+    const stateDir = checked('0.7.3', '>=24');
+    expect(globalBehind({self, stateDir})).toEqual({
+      current: '0.7.2',
+      newest: '0.7.3',
+      node: '>=24',
+      command: 'npm i -g @astryxdesign/cli@latest',
+    });
+    for (const version of ['0.7.3', '0.8.0', '0.7.2-canary.1']) {
+      expect(globalBehind({self: {...self, version}, stateDir})).toBeNull();
+    }
+  });
+
+  it("name a project's install and upgrade commands for its package manager", () => {
+    const stateDir = checked('0.7.3');
+    const coreOnly = project(tempDir(), {'@astryxdesign/core': '0.7.1'});
+    writeJson(path.join(coreOnly, 'package-lock.json'), {lockfileVersion: 3});
+    installCore(coreOnly, '0.7.1');
+    expect(
+      projectLag({cwd: coreOnly, current: '0.7.1', stateDir}),
+    ).toMatchObject({
+      root: coreOnly,
+      install: 'npm install @astryxdesign/core@0.7.3',
+      upgrade: 'npx @astryxdesign/cli@0.7.3 upgrade --from 0.7.1 --apply',
+    });
+    const pnpm = project(tempDir(), {
+      '@astryxdesign/core': '0.7.1',
+      '@astryxdesign/cli': '0.7.1',
+    });
+    fs.writeFileSync(
+      path.join(pnpm, 'pnpm-lock.yaml'),
+      "lockfileVersion: '9.0'\n",
+    );
+    installCore(pnpm, '0.7.1');
+    installStandInCli(pnpm, '0.7.1');
+    expect(projectLag({cwd: pnpm, current: '0.7.1', stateDir})).toMatchObject({
+      install: 'pnpm add @astryxdesign/core@0.7.3 @astryxdesign/cli@0.7.3',
+      upgrade: 'pnpm exec astryx upgrade --from 0.7.1 --apply',
+    });
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('oldGlobalCommand', () => {
+  it('names a first astryx that predates the hand-off with its own package manager, and not one that hands off', () => {
+    const old = cliOnPath('0.7.1', {prefix: ['global', '5']});
+    expect(oldGlobalCommand({searchPath: old.bin, platform: 'linux'})).toEqual({
+      file: path.join(old.bin, 'astryx'),
+      version: '0.7.1',
+      command: 'pnpm add -g @astryxdesign/cli@latest',
+    });
+    expect(
+      oldGlobalLines({
+        version: '0.7.1',
+        command: 'npm i -g @astryxdesign/cli@latest',
+      }),
+    ).toEqual([
+      'The astryx command on this computer runs CLI 0.7.1, which answers every folder itself.',
+      'To upgrade, run: npm i -g @astryxdesign/cli@latest',
+    ]);
+    const current = cliOnPath('0.8.0', {handsOff: true});
+    expect(
+      oldGlobalCommand({
+        searchPath: [current.bin, old.bin].join(path.delimiter),
+        platform: 'linux',
+      }),
+    ).toBeNull();
+    expect(
+      oldGlobalCommand({
+        selfRoot: old.pkg,
+        searchPath: old.bin,
+        platform: 'linux',
+      }),
+    ).toBeNull();
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('noticeLines', () => {
+  /** A global copy, outside a project. */
+  const outside = () => {
+    const global = cliOnPath('0.7.2', {handsOff: true});
+    return {
+      cwd: tempDir('empty'),
+      self: {version: '0.7.2', root: global.pkg},
+      choice: {inProject: false, version: '0.7.2'},
+      cacheDir: tempDir('cache'),
+      searchPath: global.bin,
+      env: {},
+    };
+  };
+
+  it('tells the global copy about a newer release, once a day', () => {
+    const input = {...outside(), stateDir: checked('0.7.3')};
+    expect(noticeLines({...input, now: 10})).toEqual([
+      'A new release of Astryx is available: 0.7.2 → 0.7.3',
+      'To upgrade, run: npm i -g @astryxdesign/cli@latest',
+    ]);
+    expect(noticeLines({...input, now: 20})).toEqual([]);
+    expect(noticeLines({...input, now: 10 + DAY})).toHaveLength(2);
+  });
+
+  it('prints nothing with --json, in CI, or with NO_UPDATE_NOTIFIER, and keeps the notice for later', () => {
+    const input = {...outside(), stateDir: checked('0.7.3')};
+    expect(noticeLines({...input, json: true, now: 10})).toEqual([]);
+    expect(noticeLines({...input, env: {CI: 'true'}, now: 10})).toEqual([]);
+    expect(
+      noticeLines({...input, env: {NO_UPDATE_NOTIFIER: '1'}, now: 10}),
+    ).toEqual([]);
+    expect(noticeLines({...input, now: 10})).toHaveLength(2);
+  });
+
+  it('tells a project about its release, and an old astryx first on the search path, even with no check', () => {
+    const stateDir = checked('0.7.3');
+    const dir = project(tempDir(), {'@astryxdesign/core': '0.7.1'});
+    writeJson(path.join(dir, 'package-lock.json'), {lockfileVersion: 3});
+    installCore(dir, '0.7.1');
+    const old = cliOnPath('0.7.1');
+    const input = {
+      cwd: dir,
+      self: {version: '0.7.1', root: tempDir('self')},
+      choice: {inProject: true, version: '0.7.1'},
+      searchPath: old.bin,
+      env: {},
+    };
+    expect(noticeLines({...input, stateDir, now: 10})).toEqual([
+      'A new release of Astryx is available: 0.7.1 → 0.7.3',
+      'To upgrade, run: npm install @astryxdesign/core@0.7.3, then npx @astryxdesign/cli@0.7.3 upgrade --from 0.7.1 --apply',
+      'The astryx command on this computer runs CLI 0.7.1, which answers every folder itself.',
+      'To upgrade, run: npm i -g @astryxdesign/cli@latest',
+    ]);
+    expect(
+      noticeLines({...input, stateDir: tempDir('fresh'), now: 10}),
+    ).toEqual([
+      'The astryx command on this computer runs CLI 0.7.1, which answers every folder itself.',
+      'To upgrade, run: npm i -g @astryxdesign/cli@latest',
+    ]);
+  });
+
+  it('says nothing about a copy that is not the global copy outside a project', () => {
+    const runner = {
+      ...outside(),
+      self: {
+        version: '0.7.2',
+        root: path.join(
+          tempDir('npx'),
+          '_npx',
+          'x',
+          'node_modules',
+          '@astryxdesign',
+          'cli',
+        ),
+      },
+      stateDir: checked('0.7.3'),
+    };
+    expect(noticeLines({...runner, now: 10})).toEqual([]);
+  });
+});

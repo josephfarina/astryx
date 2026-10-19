@@ -1,0 +1,353 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+
+/**
+ * @file Update notices (spec AST-081 FR10), the way `gh` and the Vercel CLI
+ * tell their users about a newer release: after the command finishes, on
+ * standard error, at most once a day per notice, never in machine-readable
+ * output, and never when the environment turns them off (`CI`,
+ * `NO_UPDATE_NOTIFIER`; update-notice-env.mjs). Unlike `gh`, a notice prints
+ * when standard error is not a terminal too, because agents run the CLI
+ * without one.
+ *
+ * Each notice is two lines:
+ *
+ *     A new release of Astryx is available: 0.7.2 → 0.7.3
+ *     To upgrade, run: npm i -g @astryxdesign/cli@latest
+ *
+ * - Outside a project, about the global copy that answered, with the command
+ *   of the package manager that installed it (npm, pnpm, Yarn, Bun, Volta),
+ *   read from where it lives, as the Vercel CLI does.
+ * - Inside a project, about the project's release, with the project's install
+ *   and `upgrade` commands.
+ * - In any folder, about an `astryx` command first on the search path that
+ *   predates the hand-off and so answers every folder itself.
+ *
+ * A newer release needs a check that has reached the registry
+ * (global-state.mjs); the last kind needs none. When the newest release needs
+ * a newer Node than the computer runs, the second line says so. Prerelease and
+ * canary versions are never reported as behind. The times of the notices are
+ * kept in the per-user state file; a time that cannot be recorded keeps the
+ * notice from printing, so it never prints on every run.
+ *
+ * @input  the per-user state, the release choice, the project's files, the
+ *   search path, the clock, and the environment
+ * @output notice lines, and the facts doctor reports
+ * @position foundation/release — printed by handoff.mjs's startRun after the
+ *   command, read by doctor.
+ */
+
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import {userConfigDir} from '../env/user-dirs.mjs';
+import {astryxCommandsOnSearchPath} from '../env/search-path.mjs';
+import {
+  CLI_PACKAGE,
+  detectPackageManager,
+  getDlxPrefix,
+  getRunPrefix,
+} from '../env/package-manager.mjs';
+import {satisfiesRange, semverCompare} from '../env/semver.mjs';
+import {isReleaseVersion} from './cache.mjs';
+import {
+  knownLatest,
+  readGlobalState,
+  updateGlobalState,
+} from './global-state.mjs';
+import {isGlobalCopy, projectRootOf} from './choose.mjs';
+import {readReleaseFacts} from './project.mjs';
+import {samePath} from '../fs/path-compare.mjs';
+import {updateNoticesOff} from './update-notice-env.mjs';
+
+/** A notice prints at most once in this long. */
+export const NOTICE_INTERVAL_MS = 24 * 60 * 60_000;
+
+/** Notice times older than this are dropped from the state file. */
+const FORGET_AFTER_MS = 30 * 24 * 60 * 60_000;
+
+/**
+ * The CLI package at its newest release, for every upgrade command. Spelled
+ * out, not built from package-manager.mjs's constant: that module reaches
+ * this one through the run context, so its bindings are not ready when this
+ * module loads.
+ */
+const LATEST = '@astryxdesign/cli@latest';
+
+/**
+ * Whether notice `key` may print now; when it may, its time is recorded
+ * first, and a time that cannot be recorded keeps it from printing.
+ * @param {string} key
+ * @param {{stateDir?: string, now?: number}} [options]
+ * @returns {boolean}
+ */
+export function takeNotice(
+  key,
+  {stateDir = userConfigDir(), now = Date.now()} = {},
+) {
+  const shown = readGlobalState(stateDir).notifiedAt ?? {};
+  const last = shown[key];
+  if (typeof last === 'number' && now - last < NOTICE_INTERVAL_MS) return false;
+  /** @type {Record<string, number>} */
+  const next = {};
+  for (const [k, t] of Object.entries(shown)) {
+    if (typeof t === 'number' && now - t < FORGET_AFTER_MS) next[k] = t;
+  }
+  next[key] = now;
+  updateGlobalState({notifiedAt: next}, stateDir);
+  return readGlobalState(stateDir).notifiedAt?.[key] === now;
+}
+
+/**
+ * Is `version` a plain release older than `newest`?
+ * @param {string | null | undefined} version
+ * @param {string | null | undefined} newest
+ * @returns {boolean}
+ */
+function isBehind(version, newest) {
+  return (
+    isReleaseVersion(version) &&
+    isReleaseVersion(newest) &&
+    !version.includes('-') &&
+    !newest.includes('-') &&
+    semverCompare(newest, version) > 0
+  );
+}
+
+/**
+ * The command that upgrades a CLI installed for the computer, by the package
+ * manager whose global folder holds it (the Vercel CLI reads it the same
+ * way); npm when none is recognized.
+ * @param {string} cliRoot the CLI package's folder
+ * @returns {string}
+ */
+export function globalUpgradeCommand(cliRoot) {
+  let at = cliRoot;
+  try {
+    at = fs.realpathSync(cliRoot);
+  } catch {
+    // Read the path as given.
+  }
+  if (/[\\/]\.volta[\\/]/iu.test(at)) return `volta install ${LATEST}`;
+  if (/[\\/]\.bun[\\/]install[\\/]global[\\/]/iu.test(at)) {
+    return `bun add -g ${LATEST}`;
+  }
+  if (/[\\/]yarn[\\/](?:data[\\/])?global[\\/]/iu.test(at)) {
+    return `yarn global add ${LATEST}`;
+  }
+  if (/[\\/]pnpm[\\/]|[\\/]global[\\/]v?\d+[\\/]/iu.test(at)) {
+    return `pnpm add -g ${LATEST}`;
+  }
+  return `npm i -g ${LATEST}`;
+}
+
+/**
+ * The second line of a notice: the command, after the Node it needs when the
+ * computer runs an older one.
+ * @param {string} command
+ * @param {string | null} node the Node range the newest release declares
+ * @param {string} [nodeVersion]
+ * @returns {string}
+ */
+export function upgradeLine(
+  command,
+  node,
+  nodeVersion = process.versions.node,
+) {
+  return node && !satisfiesRange(nodeVersion, node)
+    ? `To upgrade, install Node ${node} (this computer runs Node ${nodeVersion}), then run: ${command}`
+    : `To upgrade, run: ${command}`;
+}
+
+/**
+ * The first line of a newer-release notice.
+ * @param {string} current
+ * @param {string} newest
+ * @returns {string}
+ */
+export function availableLine(current, newest) {
+  return `A new release of Astryx is available: ${current} → ${newest}`;
+}
+
+/**
+ * @typedef {object} GlobalBehind
+ * @property {string} current the global copy's version
+ * @property {string} newest the newest release known
+ * @property {string | null} node the Node range it declares
+ * @property {string} command the command that upgrades the global copy
+ */
+
+/**
+ * Whether the global copy is older than the newest release known.
+ * @param {{self: {version: string, root: string}, stateDir?: string}} options
+ * @returns {GlobalBehind | null}
+ */
+export function globalBehind({self, stateDir = userConfigDir()}) {
+  const latest = knownLatest(stateDir);
+  if (!latest || !isBehind(self.version, latest.version)) return null;
+  return {
+    current: self.version,
+    newest: latest.version,
+    node: latest.node,
+    command: globalUpgradeCommand(self.root),
+  };
+}
+
+/**
+ * @typedef {object} ProjectLag
+ * @property {string} root the project's folder
+ * @property {string} current the release that answers it
+ * @property {string} newest the newest release known
+ * @property {string | null} node the Node range the newest release declares
+ * @property {string} install the command that installs the newest release
+ * @property {string} upgrade the command that migrates the project
+ */
+
+/**
+ * The install verb of each package manager.
+ * @type {Record<string, string>}
+ */
+const ADD = {
+  npm: 'npm install',
+  pnpm: 'pnpm add',
+  yarn: 'yarn add',
+  bun: 'bun add',
+};
+
+/**
+ * Whether the project's release is older than the newest release known, and
+ * the commands that upgrade it.
+ * @param {{cwd: string, current: string, stateDir?: string}} options
+ * @returns {ProjectLag | null}
+ */
+export function projectLag({cwd, current, stateDir = userConfigDir()}) {
+  const latest = knownLatest(stateDir);
+  if (!latest || !isBehind(current, latest.version)) return null;
+  const newest = latest.version;
+  const facts = readReleaseFacts(cwd);
+  if (!facts.inProject) return null;
+  const root = projectRootOf(facts) ?? cwd;
+  const declaresCli = Boolean(facts.cli || facts.declaredCliRange);
+  const pm = detectPackageManager(root);
+  const packages = [`@astryxdesign/core@${newest}`];
+  if (declaresCli) packages.push(`${CLI_PACKAGE}@${newest}`);
+  const install = `${ADD[pm] ?? ADD.npm} ${packages.join(' ')}`;
+  const stem = declaresCli
+    ? `${getRunPrefix(root)} astryx`
+    : `${getDlxPrefix(root)} ${CLI_PACKAGE}@${newest}`;
+  return {
+    root,
+    current,
+    newest,
+    node: latest.node,
+    install,
+    upgrade: `${stem} upgrade --from ${current} --apply`,
+  };
+}
+
+/**
+ * The first `astryx` on the search path, when it is an Astryx CLI release
+ * that predates the hand-off and is not the running copy.
+ * @param {{selfRoot?: string, searchPath?: string, platform?: NodeJS.Platform}} [options]
+ * @returns {{file: string, version: string | null, command: string} | null}
+ */
+export function oldGlobalCommand({selfRoot, ...options} = {}) {
+  const first = astryxCommandsOnSearchPath(options)[0];
+  if (!first?.astryx || !first.cliRoot || first.handsOff !== false) return null;
+  if (selfRoot && samePath(real(selfRoot), real(first.cliRoot))) return null;
+  return {
+    file: first.file,
+    version: first.version,
+    command: globalUpgradeCommand(first.cliRoot),
+  };
+}
+
+/**
+ * @param {string} p
+ * @returns {string}
+ */
+function real(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * The two lines about a global copy that predates the hand-off.
+ * @param {{version: string | null, command: string}} old
+ * @returns {string[]}
+ */
+export function oldGlobalLines(old) {
+  return [
+    `The astryx command on this computer runs CLI ${old.version ?? 'of an unknown version'}, which answers every folder itself.`,
+    `To upgrade, run: ${old.command}`,
+  ];
+}
+
+/**
+ * The notice lines to print after a command, each notice recorded as shown.
+ * Empty in machine-readable runs and when the environment turns notices off.
+ * Never throws.
+ * @param {{
+ *   cwd: string,
+ *   self: {version: string, root: string},
+ *   choice: {inProject: boolean, version: string},
+ *   json?: boolean,
+ *   stateDir?: string,
+ *   cacheDir?: string,
+ *   now?: number,
+ *   env?: Record<string, string | undefined>,
+ *   searchPath?: string,
+ * }} options
+ * @returns {string[]}
+ */
+export function noticeLines({
+  cwd,
+  self,
+  choice,
+  json = false,
+  stateDir = userConfigDir(),
+  cacheDir,
+  now = Date.now(),
+  env = process.env,
+  searchPath,
+}) {
+  if (json || updateNoticesOff(env)) return [];
+  /** @type {string[]} */
+  const lines = [];
+  const take = (/** @type {string} */ key) => takeNotice(key, {stateDir, now});
+  try {
+    if (choice.inProject) {
+      const lag = projectLag({cwd, current: choice.version, stateDir});
+      if (lag && take(`project:${lag.root}`)) {
+        lines.push(
+          availableLine(lag.current, lag.newest),
+          upgradeLine(`${lag.install}, then ${lag.upgrade}`, lag.node),
+        );
+      }
+    } else if (isGlobalCopy(self.root, cacheDir)) {
+      const behind = globalBehind({self, stateDir});
+      if (behind && take('global')) {
+        lines.push(
+          availableLine(behind.current, behind.newest),
+          upgradeLine(behind.command, behind.node),
+        );
+      }
+    }
+  } catch {
+    // A notice never fails a run.
+  }
+  try {
+    const shown = readGlobalState(stateDir).notifiedAt?.['old-global'];
+    if (typeof shown !== 'number' || now - shown >= NOTICE_INTERVAL_MS) {
+      const old = oldGlobalCommand({
+        selfRoot: self.root,
+        ...(searchPath === undefined ? {} : {searchPath}),
+      });
+      if (old && take('old-global')) lines.push(...oldGlobalLines(old));
+    }
+  } catch {
+    // Nor does this one.
+  }
+  return lines;
+}

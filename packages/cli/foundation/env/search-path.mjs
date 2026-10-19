@@ -3,7 +3,7 @@
 /**
  * @file The `astryx` commands on the computer's search path (spec AST-081
  * FR10, FR11): which program each one starts, in the order a shell tries
- * them, so `doctor`, `init --user`, and the reminders can tell the Astryx CLI
+ * them, so `doctor`, `init --user`, and the update notices can tell the Astryx CLI
  * apart from another program and a release that predates the hand-off from
  * one that hands a project's run to the project's release.
  *
@@ -15,7 +15,7 @@
  * @input  the search path and, on Windows, its executable names
  * @output one row per `astryx` command found
  * @position packages/cli/foundation/env — read by doctor, init --user, and
- *   the reminders.
+ *   the update notices.
  */
 
 import * as fs from 'node:fs';

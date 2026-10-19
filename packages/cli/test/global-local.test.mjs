@@ -79,7 +79,7 @@ function computer(options = {}) {
 function run(bin, args, {cwd, pc, env = {}}) {
   const base = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([k]) => !/^(npm_|XDG_|ASTRYX)/iu.test(k),
+      ([k]) => !/^(?:npm_|XDG_|ASTRYX|CI$|NO_UPDATE_NOTIFIER$)/iu.test(k),
     ),
   );
   const result = spawnSync(process.execPath, [bin, ...args], {
@@ -110,6 +110,14 @@ function run(bin, args, {cwd, pc, env = {}}) {
     lines: result.stderr
       .split(/\r?\n/u)
       .filter(line => line.startsWith('astryx: ')),
+    /** The update notice lines (FR10). */
+    notice: result.stderr
+      .split(/\r?\n/u)
+      .filter(line =>
+        /^(?:A new release of Astryx|To upgrade|The astryx command)/u.test(
+          line,
+        ),
+      ),
   };
 }
 
@@ -165,8 +173,30 @@ function filesIn(dir) {
  * @param {Record<string, unknown>} state
  */
 function globalState(pc, state) {
-  writeJson(path.join(pc.astryxCache, 'global.json'), state);
+  writeJson(path.join(pc.home, '.config', 'astryx', 'state.json'), state);
 }
+
+/**
+ * The saved state.
+ * @param {ReturnType<typeof computer>} pc
+ * @returns {Record<string, any>}
+ */
+function readState(pc) {
+  try {
+    return JSON.parse(
+      fs.readFileSync(
+        path.join(pc.home, '.config', 'astryx', 'state.json'),
+        'utf8',
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+/** The two lines of a newer-release notice. */
+const available = (/** @type {string} */ cur, /** @type {string} */ next) =>
+  `A new release of Astryx is available: ${cur} → ${next}`;
 
 describe.skipIf(!POSIX)(
   'who answers when global and project copies meet',
@@ -272,15 +302,15 @@ describe.skipIf(!POSIX)(
       }
     });
 
-    it('G9 outside a project: the global copy answers with its newest kept release; another copy answers itself', () => {
+    it('G9 outside a project: every copy answers itself, the global copy included, whatever releases are cached', () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
       seedPackedRelease(pc.astryxCache, '9.0.2');
-      globalState(pc, {current: '9.0.2', firstRunAt: Date.now()});
+      globalState(pc, {firstRunAt: Date.now()});
       const empty = tempDir('empty');
       const r = run(g.bin, ['--version'], {cwd: empty, pc});
-      expect(r.stdout).toBe('9.0.2');
-      expect(r.lines).toEqual([outsideLine('9.0.2')]);
+      expect(r.stdout).toBe('9.0.0');
+      expect(r.lines).toEqual([outsideLine('9.0.0')]);
       const runner = placeCli(
         path.join(
           tempDir('npx'),
@@ -338,10 +368,12 @@ describe.skipIf(!POSIX)(
       );
       const r = run(projectBin, ['--version'], {cwd: dir, pc});
       expect(r.stdout).toBe('9.0.1');
-      expect(r.lines).toEqual([
-        'astryx: the astryx command on this computer runs CLI 9.0.0, which answers every folder itself. Replace it: npm i -g @astryxdesign/cli@latest.',
+      expect(r.lines).toEqual([]);
+      expect(r.notice).toEqual([
+        'The astryx command on this computer runs CLI 9.0.0, which answers every folder itself.',
+        'To upgrade, run: npm i -g @astryxdesign/cli@latest',
       ]);
-      expect(run(projectBin, ['--version'], {cwd: dir, pc}).lines).toEqual([]);
+      expect(run(projectBin, ['--version'], {cwd: dir, pc}).notice).toEqual([]);
       const doctor = JSON.parse(
         run(projectBin, ['doctor', '--json'], {cwd: dir, pc}).stdout,
       );
@@ -351,23 +383,22 @@ describe.skipIf(!POSIX)(
         ),
       ).toMatchObject({
         status: 'warn',
-        fix: 'Replace it: `npm i -g @astryxdesign/cli@latest`.',
+        fix: 'To upgrade, run: `npm i -g @astryxdesign/cli@latest`.',
       });
     });
 
-    it('G12 two global installs: the first on the search path starts, and both choose the same release', () => {
+    it('G12 two global installs: the first on the search path starts and answers itself; doctor lists both', () => {
       const pc = computer();
       const npm = globalCli('npm', '9.0.0', {root: pc.home});
       const pnpm = globalCli('pnpm', '9.0.1', {root: pc.home});
       pc.path.unshift(npm.binDir, pnpm.binDir);
-      seedPackedRelease(pc.astryxCache, '9.0.2');
-      globalState(pc, {current: '9.0.2', firstRunAt: Date.now()});
       const empty = tempDir('empty');
-      for (const g of [npm, pnpm]) {
-        expect(run(g.bin, ['--version'], {cwd: empty, pc}).stdout).toBe(
-          '9.0.2',
-        );
-      }
+      expect(run(npm.bin, ['--version'], {cwd: empty, pc}).stdout).toBe(
+        '9.0.0',
+      );
+      expect(run(pnpm.bin, ['--version'], {cwd: empty, pc}).stdout).toBe(
+        '9.0.1',
+      );
       const doctor = JSON.parse(
         run(npm.bin, ['doctor', '--json'], {cwd: empty, pc}).stdout,
       );
@@ -403,24 +434,15 @@ describe.skipIf(!POSIX)(
       ).toBe('warn');
     });
 
-    it('G14 a Node version manager: each Node has its own global copy, and a kept release answers only on a Node it supports', () => {
+    it('G14 a Node version manager: each Node has its own global copy, which answers itself', () => {
       const pc = computer();
       for (const layout of /** @type {const} */ (['nvm', 'fnm', 'volta'])) {
+        const copy = globalCli(layout, '9.0.0', {root: pc.home});
+        expect(isGlobalCopy(copy.dir, pc.astryxCache)).toBe(true);
         expect(
-          isGlobalCopy(globalCli(layout, '9.0.0').dir, pc.astryxCache),
-        ).toBe(true);
+          run(copy.bin, ['--version'], {cwd: tempDir('empty'), pc}).stdout,
+        ).toBe('9.0.0');
       }
-      const g = globalCli('nvm', '9.0.0', {root: pc.home});
-      seedPackedRelease(pc.astryxCache, '9.0.1');
-      seedPackedRelease(pc.astryxCache, '9.0.2', {engines: {node: '>=99'}});
-      globalState(pc, {
-        current: '9.0.2',
-        previous: '9.0.1',
-        firstRunAt: Date.now(),
-      });
-      expect(
-        run(g.bin, ['--version'], {cwd: tempDir('empty'), pc}).stdout,
-      ).toBe('9.0.1');
     });
 
     it('G15 a project pinned through a package manager shim: as for that project, and nothing written there', () => {
@@ -466,24 +488,19 @@ describe.skipIf(!POSIX)(
     );
 
     it.skipIf(ROOT)(
-      'G17 the cache cannot be written: the installed copy answers outside, a needed release fails, and the reminder says why',
+      'G17 the cache cannot be written: the global copy still answers outside, and a needed release fails with ERR_VERSIONS_UNAVAILABLE',
       () => {
         const pc = computer();
         const g = globalCli('npm', '9.0.0', {root: pc.home});
-        globalState(pc, {
-          latest: '9.0.5',
-          checkOkAt: Date.now(),
-          checkedAt: Date.now(),
-          firstRunAt: Date.now(),
-        });
+        fs.mkdirSync(pc.astryxCache, {recursive: true});
         fs.chmodSync(pc.astryxCache, 0o555);
         try {
-          const empty = tempDir('empty');
-          const outside = run(g.bin, ['--version'], {cwd: empty, pc});
+          const outside = run(g.bin, ['--version'], {
+            cwd: tempDir('empty'),
+            pc,
+          });
+          expect(outside.status).toBe(0);
           expect(outside.stdout).toBe('9.0.0');
-          expect(outside.lines).toContain(
-            `astryx: cannot move to Astryx 9.0.5: the per-user cache ${pc.astryxCache} cannot be written. Run astryx doctor for the fix.`,
-          );
           const dir = makeProject({core: '9.0.1'});
           const r = run(g.bin, ['--version', '--json'], {cwd: dir, pc});
           expect(r.status).toBe(1);
@@ -506,7 +523,7 @@ describe.skipIf(!POSIX)(
       });
       expect(r.status).toBe(0);
       expect(filesIn(dir)).toEqual(before);
-      expect(fs.existsSync(path.join(pc.home, '.cache', 'astryx'))).toBe(true);
+      expect(fs.existsSync(path.join(pc.home, '.config', 'astryx'))).toBe(true);
       expect(
         userCacheDir({
           home: pc.home,
@@ -516,15 +533,18 @@ describe.skipIf(!POSIX)(
       ).toBe(path.join('/abs', 'astryx'));
     });
 
-    it('G19 a fresh home, as in continuous integration: no check, no reminder, and the guide is written in the background', async () => {
+    it('G19 continuous integration (CI set, a fresh home): no check and no notice; the guide is written in the background', async () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
-      const r = run(g.bin, ['--version'], {cwd: tempDir('empty'), pc});
+      const r = run(g.bin, ['--version'], {
+        cwd: tempDir('empty'),
+        pc,
+        env: {CI: 'true'},
+      });
       expect(r.lines).toEqual([outsideLine('9.0.0')]);
-      const state = JSON.parse(
-        fs.readFileSync(path.join(pc.astryxCache, 'global.json'), 'utf8'),
-      );
-      expect(state.checkedAt).toBeUndefined();
+      expect(r.notice).toEqual([]);
+      expect(readState(pc).checkedAt).toBeUndefined();
+      expect(readState(pc).firstRunAt).toBeUndefined();
       const skill = path.join(
         pc.home,
         '.agents',
@@ -568,7 +588,7 @@ describe.skipIf(!POSIX)(
       expect(tryLock(lock, {now: t0 + LEASE_SILENCE_MS})).toBe(true);
     });
 
-    it('G22 a project behind the newest release: the reminder, once a day, after a real check of the registry', async () => {
+    it('G22 a project behind the newest release: the notice after the command, once a day, after a real check of the registry', async () => {
       const registry = await startRegistry({
         versions: ['9.0.1', '9.0.5'],
         latest: '9.0.5',
@@ -576,56 +596,54 @@ describe.skipIf(!POSIX)(
       try {
         const pc = computer();
         const g = globalCli('npm', '9.0.0', {root: pc.home});
-        globalState(pc, {firstRunAt: Date.now() - 2 * 60 * 60_000});
+        globalState(pc, {firstRunAt: Date.now() - 2 * 24 * 60 * 60_000});
         const env = {npm_config_registry: registry.url};
         run(g.bin, ['--version'], {cwd: tempDir('empty'), pc, env});
-        const stateFile = path.join(pc.astryxCache, 'global.json');
-        for (let i = 0; i < 300; i++) {
-          if (JSON.parse(fs.readFileSync(stateFile, 'utf8')).latest) break;
+        for (let i = 0; i < 300 && !readState(pc).latest; i++) {
           await new Promise(done => setTimeout(done, 100));
         }
-        expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).latest).toBe(
-          '9.0.5',
-        );
+        expect(readState(pc).latest).toBe('9.0.5');
+        // The check installed nothing.
+        expect(
+          fs.existsSync(path.join(pc.astryxCache, 'releases', '9.0.5')),
+        ).toBe(false);
         const dir = makeProject({core: '9.0.1', cli: '9.0.1'});
         writeJson(path.join(dir, 'package-lock.json'), {lockfileVersion: 3});
         const json = run(g.bin, ['--version', '--json'], {cwd: dir, pc, env});
-        expect(json.stderr).not.toContain('this project uses');
+        expect(json.notice).toEqual([]);
         const first = run(g.bin, ['--version'], {cwd: dir, pc, env});
-        expect(first.lines).toEqual([
-          handedTo('9.0.1')('9.0.0'),
-          'astryx: this project uses Astryx 9.0.1; 9.0.5 is the newest. To upgrade: npm install @astryxdesign/core@9.0.5 @astryxdesign/cli@9.0.5, then npx astryx upgrade --from 9.0.1 --apply.',
+        expect(first.lines).toEqual([handedTo('9.0.1')('9.0.0')]);
+        expect(first.notice).toEqual([
+          available('9.0.1', '9.0.5'),
+          'To upgrade, run: npm install @astryxdesign/core@9.0.5 @astryxdesign/cli@9.0.5, then npx astryx upgrade --from 9.0.1 --apply',
         ]);
-        expect(run(g.bin, ['--version'], {cwd: dir, pc, env}).lines).toEqual([
-          handedTo('9.0.1')('9.0.0'),
-        ]);
+        // The notice comes after the command's own output.
+        expect(first.stderr.trim().split('\n').at(-1)).toBe(first.notice[1]);
+        expect(run(g.bin, ['--version'], {cwd: dir, pc, env}).notice).toEqual(
+          [],
+        );
       } finally {
         await registry.close();
       }
     }, 60_000);
 
-    it('G23 the global copy cannot move to the newest release: the current one answers, the reminder and doctor say why', () => {
+    it('G23 the newest release needs a newer Node: the global copy answers, and the notice and doctor name the Node first', () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
-      seedPackedRelease(pc.astryxCache, '9.0.2');
       globalState(pc, {
-        current: '9.0.2',
         latest: '9.0.5',
+        latestNode: '>=99',
         checkOkAt: Date.now(),
         checkedAt: Date.now(),
         firstRunAt: Date.now(),
-        notice: {
-          blockedVersion: '9.0.5',
-          blockedReason:
-            'it needs Node >=99, and this computer runs Node 24.0.0',
-        },
       });
       const empty = tempDir('empty');
       const r = run(g.bin, ['--version'], {cwd: empty, pc});
-      expect(r.stdout).toBe('9.0.2');
-      expect(r.lines).toContain(
-        'astryx: cannot move to Astryx 9.0.5: it needs Node >=99, and this computer runs Node 24.0.0. Run astryx doctor for the fix.',
-      );
+      expect(r.stdout).toBe('9.0.0');
+      expect(r.notice).toEqual([
+        available('9.0.0', '9.0.5'),
+        `To upgrade, install Node >=99 (this computer runs Node ${process.versions.node}), then run: npm i -g @astryxdesign/cli@latest`,
+      ]);
       const doctor = JSON.parse(
         run(g.bin, ['doctor', '--json'], {cwd: empty, pc}).stdout,
       );
@@ -633,7 +651,10 @@ describe.skipIf(!POSIX)(
         doctor.data.checks.find(
           (/** @type {any} */ c) => c.id === 'newest-release',
         ),
-      ).toMatchObject({status: 'warn'});
+      ).toMatchObject({
+        status: 'info',
+        fix: `To upgrade, install Node >=99 (this computer runs Node ${process.versions.node}), then run: npm i -g @astryxdesign/cli@latest.`,
+      });
     });
 
     it('G24 a link to a project folder answers as the folder does', () => {
@@ -745,7 +766,7 @@ describe.skipIf(!POSIX)(
         env: {
           ...Object.fromEntries(
             Object.entries(process.env).filter(
-              ([key]) => !/^(npm_|XDG_)/iu.test(key),
+              ([key]) => !/^(?:npm_|XDG_|CI$|NO_UPDATE_NOTIFIER$)/iu.test(key),
             ),
           ),
           HOME: pc.home,
@@ -776,14 +797,13 @@ describe.skipIf(!POSIX)(
     it('G29 a package runner that reuses the global install answers as the global copy', () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
-      seedPackedRelease(pc.astryxCache, '9.0.2');
-      globalState(pc, {current: '9.0.2', firstRunAt: Date.now()});
       const r = run(g.bin, ['--version'], {
         cwd: tempDir('empty'),
         pc,
         env: {npm_command: 'exec', npm_lifecycle_event: 'npx'},
       });
-      expect(r.stdout).toBe('9.0.2');
+      expect(r.stdout).toBe('9.0.0');
+      expect(r.lines).toEqual([outsideLine('9.0.0')]);
     });
 
     it('G30 init --user inside a project answers for the computer and writes nothing in the project', () => {
@@ -804,31 +824,24 @@ describe.skipIf(!POSIX)(
       expect(filesIn(dir)).toEqual(before);
     });
 
-    it('G31 a damaged kept release: the previous kept release answers, else the installed copy', () => {
+    it('G31 a damaged cached release is not used: the run installs it again, or fails with ERR_VERSIONS_UNAVAILABLE when it cannot', () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
-      const current = seedPackedRelease(pc.astryxCache, '9.0.2');
-      seedPackedRelease(pc.astryxCache, '9.0.1');
-      globalState(pc, {
-        current: '9.0.2',
-        previous: '9.0.1',
-        firstRunAt: Date.now(),
-      });
+      const cached = seedPackedRelease(pc.astryxCache, '9.0.2');
+      const dir = makeProject({core: '9.0.2'});
+      expect(run(g.bin, ['--version'], {cwd: dir, pc}).stdout).toBe('9.0.2');
       fs.rmSync(
         path.join(
-          current.dir,
+          cached.dir,
           'node_modules',
           '@astryxdesign',
           'core',
           'package.json',
         ),
       );
-      const empty = tempDir('empty');
-      expect(run(g.bin, ['--version'], {cwd: empty, pc}).stdout).toBe('9.0.1');
-      fs.rmSync(path.join(pc.astryxCache, 'releases', '9.0.1'), {
-        recursive: true,
-      });
-      expect(run(g.bin, ['--version'], {cwd: empty, pc}).stdout).toBe('9.0.0');
+      const r = run(g.bin, ['--version', '--json'], {cwd: dir, pc});
+      expect(r.status).toBe(1);
+      expect(JSON.parse(r.stdout).code).toBe('ERR_VERSIONS_UNAVAILABLE');
     });
 
     it('G32 a workspace whose own CLI sits beside its own Core answers with that CLI', () => {
@@ -865,6 +878,57 @@ describe.skipIf(!POSIX)(
         expect(r.lines).toEqual([handedTo(CLI_VERSION)('9.0.0')]);
       }
     });
+
+    it('G33 the global copy behind the newest release: the notice after the command names the package manager that installed it', () => {
+      for (const [layout, command] of /** @type {const} */ ([
+        ['npm', 'npm i -g @astryxdesign/cli@latest'],
+        ['pnpm', 'pnpm add -g @astryxdesign/cli@latest'],
+        ['volta', 'volta install @astryxdesign/cli@latest'],
+      ])) {
+        const pc = computer();
+        const g = globalCli(layout, '9.0.0', {root: pc.home});
+        globalState(pc, {
+          latest: '9.0.5',
+          checkOkAt: Date.now(),
+          firstRunAt: Date.now(),
+        });
+        const empty = tempDir('empty');
+        const r = run(g.bin, ['--version'], {cwd: empty, pc});
+        expect(r.status).toBe(0);
+        expect(r.notice).toEqual([
+          available('9.0.0', '9.0.5'),
+          `To upgrade, run: ${command}`,
+        ]);
+        expect(run(g.bin, ['--version'], {cwd: empty, pc}).notice).toEqual([]);
+      }
+      // A failed command prints no notice.
+      const pc = computer();
+      const g = globalCli('npm', '9.0.0', {root: pc.home});
+      globalState(pc, {latest: '9.0.5', checkOkAt: Date.now(), firstRunAt: 0});
+      const failed = run(g.bin, ['no-such-command'], {
+        cwd: tempDir('empty'),
+        pc,
+      });
+      expect(failed.status).not.toBe(0);
+      expect(failed.notice).toEqual([]);
+    });
+
+    it('G34 NO_UPDATE_NOTIFIER or CI set: no check and no notice, whatever is due', () => {
+      for (const env of [{NO_UPDATE_NOTIFIER: '1'}, {CI: '1'}]) {
+        const pc = computer();
+        const g = globalCli('npm', '9.0.0', {root: pc.home});
+        globalState(pc, {
+          latest: '9.0.5',
+          checkOkAt: 1,
+          checkedAt: 1,
+          firstRunAt: 1,
+        });
+        const r = run(g.bin, ['--version'], {cwd: tempDir('empty'), pc, env});
+        expect(r.notice).toEqual([]);
+        expect(readState(pc).checkedAt).toBe(1);
+        expect(readState(pc).notifiedAt).toBeUndefined();
+      }
+    });
   },
 );
 
@@ -873,6 +937,6 @@ it('names every row of the table exactly once', () => {
   const rows = [
     ...text.matchAll(/^\s+it(?:\.skipIf\([^)]*\)\()?\(?\s*['"](G\d+) /gmu),
   ].map(m => m[1]);
-  expect(rows).toEqual(Array.from({length: 32}, (_, i) => `G${i + 1}`));
+  expect(rows).toEqual(Array.from({length: 34}, (_, i) => `G${i + 1}`));
   expect(os.EOL).toBeTypeOf('string');
 });

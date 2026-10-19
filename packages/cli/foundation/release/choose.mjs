@@ -17,8 +17,8 @@
  *     the release in the per-user cache, installing it first.
  *   - `astryx upgrade` follows the same rule, so it always runs the codemods of
  *     the release equal to the project's Core.
- * - **Outside a project**, the global copy answers with the newest release it
- *   keeps (global-state.mjs); every other copy answers itself.
+ * - **Outside a project**, every copy answers itself, the global copy
+ *   included; a newer release is announced, never installed (notices.mjs).
  *
  * A copy never hands a run to itself, so a run is handed off at most once:
  * the copy it reaches makes the same choice and finds itself.
@@ -43,7 +43,6 @@ import {
   resolvePublishedVersion,
   userCacheDir,
 } from './cache.mjs';
-import {currentGlobalRelease} from './global-state.mjs';
 import {relativeWithin, samePath} from '../fs/path-compare.mjs';
 
 /**
@@ -195,7 +194,6 @@ function exactOrRange(name, spec) {
 export function chooseRelease({
   cwd,
   self,
-  cacheDir = userCacheDir(),
   resolve = resolvePublishedVersion,
   computer = false,
 }) {
@@ -203,22 +201,6 @@ export function chooseRelease({
   const selfReal = real(self.root);
 
   if (!facts.inProject) {
-    if (isGlobalCopy(self.root, cacheDir)) {
-      const current = currentGlobalRelease(cacheDir, {
-        selfVersion: self.version,
-      });
-      if (current && current.version !== self.version) {
-        return {
-          copy: 'carried',
-          answer: 'release',
-          version: current.version,
-          bin: current.bin,
-          coreVersion: current.version,
-          inProject: false,
-          unavailable: null,
-        };
-      }
-    }
     return {
       copy: 'carried',
       answer: 'self',

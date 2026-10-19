@@ -60,7 +60,8 @@ import {checkAppThemes, checkThemes} from './theme-checks.mjs';
 import {isOutsideProject} from '../../foundation/env/project-scope.mjs';
 import {answeredBy} from '../../foundation/release/run-context.mjs';
 import {knownLatestRelease} from '../../foundation/release/global-state.mjs';
-import {REPLACE_GLOBAL_COPY, globalLag, projectLag} from '../../foundation/release/reminders.mjs';
+import {availableLine, globalBehind, globalUpgradeCommand, projectLag, upgradeLine} from '../../foundation/release/notices.mjs';
+import {isGlobalCopy} from '../../foundation/release/choose.mjs';
 import {astryxCommandsOnSearchPath} from '../../foundation/env/search-path.mjs';
 import {displayHomePath, inspectComputerAgentText} from '../../foundation/agent-docs/computer-agent-text.mjs';
 import {computerAgentTextSettings} from '../../foundation/env/user-settings.mjs';
@@ -1347,9 +1348,10 @@ export function checkCliCommand(ctx) {
  * @property {import('../../foundation/env/user-settings.mjs').ComputerAgentTextSettings} [agentTextSettings]
  *   the person's choices about the computer-level agent text
   * @property {string} [cwd] the folder doctor runs in, for the printed fix
- * @property {import('../../foundation/release/reminders.mjs').GlobalLag | null} [globalLag]
- *   why the global copy cannot move to the newest release (outside a project)
- * @property {import('../../foundation/release/reminders.mjs').ProjectLag | null} [projectLag]
+ * @property {import('../../foundation/release/notices.mjs').GlobalBehind | null} [globalBehind]
+ *   the CLI installed for the computer, when it is older than the newest
+ *   release (outside a project)
+ * @property {import('../../foundation/release/notices.mjs').ProjectLag | null} [projectLag]
  *   the project's release, when it is behind the newest (inside a project)
  * @property {import('../../foundation/env/search-path.mjs').SearchPathCommand[]} [searchPathCommands]
  *   the `astryx` commands on the search path, in order
@@ -1375,32 +1377,31 @@ export function checkAnsweringRelease(ctx) {
 
 /**
  * The newest release this computer knows of, beside the one that answered
- * (spec AST-081 FR10). Runs inside and outside a project. Inside one, a
- * release behind the newest names the install and upgrade commands; outside
- * one, a global copy that cannot move to the newest release warns with the
- * cause and its fix. Doctor installs nothing.
+ * (spec AST-081 FR10). Runs inside and outside a project, and is always
+ * info. Inside one, a release behind the newest names the install and
+ * upgrade commands; outside one, a CLI installed for the computer that is
+ * behind names the command of the package manager that installed it, after
+ * the Node it needs when the computer runs an older one. Doctor installs
+ * nothing.
  * @param {ComputerContext} ctx
  * @returns {DoctorCheck}
  */
 export function checkNewestRelease(ctx) {
-  const {latest, globalLag, projectLag} = ctx;
+  const {latest, globalBehind: behind, projectLag: lag} = ctx;
   const {cli} = ctx.answeredBy;
   const base = {id: 'newest-release', label: 'Newest release', status: /** @type {const} */ ('info')};
-  if (globalLag) {
+  if (behind) {
     return {
       ...base,
-      status: 'warn',
-      message: globalLag.newest
-        ? `The CLI installed for the computer cannot move to ${globalLag.newest}: ${globalLag.message}.`
-        : `The CLI installed for the computer cannot check for newer releases: ${globalLag.message}.`,
-      fix: globalLag.fix,
+      message: `${availableLine(behind.current, behind.newest)}. The CLI installed for the computer stays on its release until you upgrade it.`,
+      fix: `${upgradeLine(behind.command, behind.node)}.`,
     };
   }
-  if (projectLag) {
+  if (lag) {
     return {
       ...base,
-      message: `This project uses Astryx ${projectLag.current}; ${projectLag.newest} is the newest.`,
-      fix: `Run \`${projectLag.install}\`, then \`${projectLag.upgrade}\`.`,
+      message: `This project uses Astryx ${lag.current}; ${lag.newest} is the newest.`,
+      fix: `${upgradeLine(`${lag.install}, then ${lag.upgrade}`, lag.node)}.`,
     };
   }
   if (!latest) {
@@ -1454,7 +1455,7 @@ export function checkCliOnPath(ctx) {
       ...base,
       status: 'warn',
       message: `The first \`astryx\` on the search path, ${first.file}, runs CLI ${first.version ?? 'of unknown version'}, which predates the hand-off and answers every folder itself.${othersNote}`,
-      fix: `Replace it: \`${REPLACE_GLOBAL_COPY}\`.`,
+      fix: `To upgrade, run: \`${first.cliRoot ? globalUpgradeCommand(first.cliRoot) : 'npm i -g @astryxdesign/cli@latest'}\`.`,
     };
   }
   return {
@@ -1549,11 +1550,11 @@ function runComputerChecks(cwd) {
   const ctx = {
     nodeVersion: process.versions.node,
     answeredBy: answeredBy(cwd),
-        latest: knownLatestRelease(),
+    latest: knownLatestRelease(),
     agentTextSettings: computerAgentTextSettings(),
     cwd,
   };
-  ctx.globalLag = globalLag({selfVersion: ctx.answeredBy.cli});
+  ctx.globalBehind = isGlobalCopy(CLI_ROOT) ? globalBehind({self: {version: ctx.answeredBy.cli, root: CLI_ROOT}}) : null;
   const checks = COMPUTER_CHECKS.map(fn => fn(ctx));
   const summary = {pass: 0, warn: 0, fail: 0, info: 0};
   for (const c of checks) summary[c.status] += 1;

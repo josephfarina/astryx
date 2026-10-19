@@ -25,12 +25,14 @@ export const docs = {
     'cache',
     'offline',
     'update',
+    'update notice',
+    'NO_UPDATE_NOTIFIER',
     'init --user',
     'SKILL.md',
     'skills',
   ],
   description:
-    'Install the CLI once for your computer and run it in any folder: each project is answered by the release that matches its Core, and folders outside a project by the newest release.',
+    'Install the CLI once for your computer and run it in any folder: each project is answered by the release that matches its Core, folders outside a project by the release you installed, and a notice says when a newer one is out.',
   sections: [
     {
       id: 'install',
@@ -47,7 +49,7 @@ export const docs = {
         },
         {
           type: 'prose',
-          text: "A project can still install the CLI as a dev dependency, and a package runner (`npx @astryxdesign/cli`) still works. Inside a project, every copy follows the rules below, so the project's release answers whichever one you start. Outside a project, the copy you installed for your computer answers with the newest release it keeps, while a package runner's copy, or a version you type such as `npx @astryxdesign/cli@0.7.0`, answers as exactly that release.",
+          text: "A project can still install the CLI as a dev dependency, and a package runner (`npx @astryxdesign/cli`) still works. Inside a project, every copy follows the rules below, so the project's release answers whichever one you start. Outside a project, the copy you installed for your computer answers with its own release, while a package runner's copy, or a version you type such as `npx @astryxdesign/cli@0.7.0`, answers as exactly that release.",
         },
       ],
     },
@@ -81,7 +83,7 @@ export const docs = {
     },
     {
       id: 'outside-a-project',
-      title: 'Outside a project, the newest release answers',
+      title: 'Outside a project, your installed release answers',
       content: [
         {
           type: 'prose',
@@ -89,40 +91,41 @@ export const docs = {
         },
         {
           type: 'prose',
-          text: "The CLI you installed for your computer stays on the newest release. At most once an hour, never in the first hour after you install it, a run starts a background check of the registry's `latest` release, installs a newer one into the cache, and verifies that it starts. The next run outside a project uses it and says so once. A failed check changes nothing, and the release it switched from stays in the cache. Projects are never updated: a reminder and `astryx doctor` name the commands instead (see below).",
-        },
-        {
-          type: 'code',
-          lang: 'text',
-          code: 'astryx: now using 0.7.3 (was 0.7.2). What changed: https://github.com/facebook/astryx/releases/tag/v0.7.3',
+          text: 'The CLI you installed for your computer answers with its own release. It never installs a newer one by itself: it tells you when one exists, the way `gh` and the Vercel CLI do, and you upgrade it with your package manager.',
         },
       ],
     },
     {
-      id: 'reminders',
-      title: 'Reminders to update',
+      id: 'update-notices',
+      title: 'Update notices',
       content: [
         {
           type: 'prose',
-          text: "A text-mode run prints one reminder line on standard error, at most once a day for each reason, and never with `--json`. Reminders never change a command's output or exit status. The reminders about a newer release need one that the CLI installed for your computer has found, so a fresh home folder, such as a CI run's, never prints them. The reminder about an old `astryx` command needs no check.",
+          text: "Once a day, never in the first day after its first run, the CLI installed for your computer checks the registry's `latest` release in the background, without delaying the command, and remembers the answer. When a newer release exists, a command that finishes successfully prints two lines on standard error, at most once a day:",
+        },
+        {
+          type: 'code',
+          lang: 'text',
+          code: 'A new release of Astryx is available: 0.7.2 → 0.7.3\nTo upgrade, run: npm i -g @astryxdesign/cli@latest',
         },
         {
           type: 'list',
           style: 'unordered',
           items: [
-            'The project is on an older release than the newest. The line names the install command for your package manager and the `upgrade` command that migrates the code.',
-            'The CLI installed for your computer cannot move to the newest release: it needs a newer Node, the per-user cache cannot be written, or the registry has not been reached for 7 days. The line points at `astryx doctor`, which names the fix for your computer.',
-            'The first `astryx` on your search path is a release from before projects were handed to their own release, so it answers every folder itself. The line names the command that replaces it.',
+            'Outside a project, the command is that of the package manager that installed the CLI: `npm i -g`, `pnpm add -g`, `yarn global add`, `bun add -g`, or `volta install`. When the newest release needs a newer Node than your computer runs, the second line says so first.',
+            "Inside a project, the notice is about the project's release, and the second line names the install command for the project's package manager and the `upgrade` command that migrates the code.",
+            'When the first `astryx` on your search path is a release from before projects were handed to their own release, it answers every folder itself; a notice names that release and the command that upgrades it.',
+            'No notice prints with `--json`, after a failed command, when the `CI` environment variable is set, or when `NO_UPDATE_NOTIFIER` is set; with either variable set, the CLI does not check the registry either. Unlike `gh`, a notice prints when standard error is not a terminal, because agents run the CLI without one.',
           ],
         },
         {
           type: 'code',
           lang: 'text',
-          code: 'astryx: this project uses Astryx 0.7.1; 0.7.3 is the newest. To upgrade: npm install @astryxdesign/core@0.7.3 @astryxdesign/cli@0.7.3, then npx astryx upgrade --from 0.7.1 --apply.\nastryx: cannot move to Astryx 0.8.0: it needs Node >=24, and this computer runs Node 22.13.0. Run astryx doctor for the fix.\nastryx: the astryx command on this computer runs CLI 0.7.1, which answers every folder itself. Replace it: npm i -g @astryxdesign/cli@latest.',
+          code: 'A new release of Astryx is available: 0.7.1 → 0.7.3\nTo upgrade, run: npm install @astryxdesign/core@0.7.3 @astryxdesign/cli@0.7.3, then npx astryx upgrade --from 0.7.1 --apply',
         },
         {
           type: 'prose',
-          text: "`astryx doctor` reports the same things: in a project, its release beside the newest with the commands; outside one, whether the CLI installed for your computer can move to the newest release; and, everywhere, every `astryx` on your search path in the order your shell tries them. The times of the reminders live in `astryx/reminders.json` in your platform's configuration folder.",
+          text: "`astryx doctor` reports the same things: in a project, its release beside the newest with the commands; outside one, the release of the CLI installed for your computer beside the newest; and, everywhere, every `astryx` on your search path in the order your shell tries them. What the check found, and when each notice last printed, live in `astryx/state.json` in your platform's configuration folder.",
         },
       ],
     },
@@ -132,7 +135,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "A project's agent docs reach only agents working in that project. The CLI you install for your computer also keeps a short guide where agent tools look on your computer, so agents anywhere know how to use Astryx. It writes the guide on its first run and again after each switch to a newer release, in the background, so no command waits for it. Installing the package does not write it: some package managers skip install scripts.",
+          text: "A project's agent docs reach only agents working in that project. The CLI you install for your computer also keeps a short guide where agent tools look on your computer, so agents anywhere know how to use Astryx. It writes the guide on its first run and again after you upgrade it, in the background, so no command waits for it. Installing the package does not write it: some package managers skip install scripts.",
         },
         {
           type: 'prose',
