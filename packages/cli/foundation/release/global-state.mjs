@@ -74,25 +74,81 @@ export function readGlobalState(stateDir = userConfigDir()) {
     : {};
 }
 
+/** How long a run waits for another run's change to the state file. */
+const STATE_LOCK_WAIT_MS = 2000;
+
+/** Sleep the thread without spinning. @param {number} ms */
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 /**
- * Merge `patch` into the saved state, atomically. An unwritable folder never
- * fails a run.
+ * Run `change` while holding the state file's lock, so runs that finish at
+ * the same moment change the state one at a time: each reads what the one
+ * before it wrote. Returns `change`'s result, or `undefined` when the lock
+ * cannot be taken in time or the folder cannot be written, in which case
+ * nothing changes.
+ * @template T
+ * @param {string} stateDir
+ * @param {() => T} change
+ * @returns {T | undefined}
+ */
+export function withStateLock(stateDir, change) {
+  const lockDir = path.join(stateDir, '.lock-state');
+  const deadline = Date.now() + STATE_LOCK_WAIT_MS;
+  try {
+    while (!tryLock(lockDir)) {
+      if (Date.now() > deadline) return undefined;
+      sleep(10);
+    }
+  } catch {
+    return undefined;
+  }
+  try {
+    return change();
+  } finally {
+    fs.rmSync(lockDir, {recursive: true, force: true});
+  }
+}
+
+/**
+ * Write the whole state, atomically. Call only while holding the lock.
+ * @param {GlobalState} state
+ * @param {string} stateDir
+ * @returns {boolean} whether it was written
+ */
+export function writeGlobalState(state, stateDir) {
+  const file = stateFile(stateDir);
+  try {
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`);
+    fs.renameSync(tmp, file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Merge `patch` into the saved state under the lock. An unwritable folder
+ * never fails a run; the state is simply not kept.
  * @param {Partial<GlobalState>} patch
  * @param {string} [stateDir]
  * @returns {GlobalState}
  */
 export function updateGlobalState(patch, stateDir = userConfigDir()) {
-  const next = {...readGlobalState(stateDir), ...patch};
-  const file = stateFile(stateDir);
   try {
-    fs.mkdirSync(path.dirname(file), {recursive: true});
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);
-    fs.renameSync(tmp, file);
+    fs.mkdirSync(stateDir, {recursive: true});
   } catch {
-    // An unwritable folder never fails a run; the state is simply not kept.
+    // Unwritable: nothing is kept.
   }
-  return next;
+  return (
+    withStateLock(stateDir, () => {
+      const next = {...readGlobalState(stateDir), ...patch};
+      writeGlobalState(next, stateDir);
+      return next;
+    }) ?? {...readGlobalState(stateDir), ...patch}
+  );
 }
 
 /**

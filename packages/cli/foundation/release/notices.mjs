@@ -47,11 +47,12 @@ import {
   getRunPrefix,
 } from '../env/package-manager.mjs';
 import {satisfiesRange, semverCompare} from '../env/semver.mjs';
-import {isReleaseVersion} from './cache.mjs';
+import {isInReleaseCache, isReleaseVersion} from './cache.mjs';
 import {
   knownLatest,
   readGlobalState,
-  updateGlobalState,
+  withStateLock,
+  writeGlobalState,
 } from './global-state.mjs';
 import {isGlobalCopy, projectRootOf} from './choose.mjs';
 import {readReleaseFacts} from './project.mjs';
@@ -83,17 +84,29 @@ export function takeNotice(
   key,
   {stateDir = userConfigDir(), now = Date.now()} = {},
 ) {
-  const shown = readGlobalState(stateDir).notifiedAt ?? {};
-  const last = shown[key];
-  if (typeof last === 'number' && now - last < NOTICE_INTERVAL_MS) return false;
-  /** @type {Record<string, number>} */
-  const next = {};
-  for (const [k, t] of Object.entries(shown)) {
-    if (typeof t === 'number' && now - t < FORGET_AFTER_MS) next[k] = t;
+  try {
+    fs.mkdirSync(stateDir, {recursive: true});
+  } catch {
+    return false;
   }
-  next[key] = now;
-  updateGlobalState({notifiedAt: next}, stateDir);
-  return readGlobalState(stateDir).notifiedAt?.[key] === now;
+  // Read, decide, and record under one lock: of the runs that finish at the
+  // same moment, exactly one takes the notice.
+  const taken = withStateLock(stateDir, () => {
+    const state = readGlobalState(stateDir);
+    const shown = state.notifiedAt ?? {};
+    const last = shown[key];
+    if (typeof last === 'number' && now - last < NOTICE_INTERVAL_MS) {
+      return false;
+    }
+    /** @type {Record<string, number>} */
+    const next = {};
+    for (const [k, t] of Object.entries(shown)) {
+      if (typeof t === 'number' && now - t < FORGET_AFTER_MS) next[k] = t;
+    }
+    next[key] = now;
+    return writeGlobalState({...state, notifiedAt: next}, stateDir);
+  });
+  return taken === true;
 }
 
 /**
@@ -312,7 +325,11 @@ export function noticeLines({
   env = process.env,
   searchPath,
 }) {
-  if (json || updateNoticesOff(env)) return [];
+  // A run inside the release cache is the CLI checking a release it
+  // installed, never a person's run.
+  if (json || updateNoticesOff(env) || isInReleaseCache(cwd, cacheDir)) {
+    return [];
+  }
   /** @type {string[]} */
   const lines = [];
   const take = (/** @type {string} */ key) => takeNotice(key, {stateDir, now});

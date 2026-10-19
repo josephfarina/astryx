@@ -803,9 +803,13 @@ function installLocked(version, {cacheDir, run, nodeVersion}) {
     }
     const bin = cliBinOf(cliDir);
     if (!bin) return {version, reason: 'its CLI has no astryx command'};
+    // A check, not a person's run: the shared update-notifier variable keeps
+    // a release that prints update notices from printing them here, and from
+    // using up the day's notices (spec AST-081 FR10).
     const started = spawnSync(process.execPath, [bin, '--version'], {
       cwd: tmp,
       encoding: 'utf-8',
+      env: {...process.env, NO_UPDATE_NOTIFIER: '1'},
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 60_000,
       windowsHide: true,

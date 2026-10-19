@@ -78,6 +78,30 @@ function fakeNpm(options = {}) {
 }
 
 describe('ensureRelease', () => {
+  it('verifies a release with update notices off, so the check prints and uses up none (FR10)', () => {
+    const cacheDir = tempDir('cache');
+    const npm = fakeNpm();
+    /** @type {typeof npm.run} */
+    const run = (args, opts = {}) => {
+      const result = npm.run(args, opts);
+      // A release whose --version answers only when notices are off.
+      const bin = path.join(
+        /** @type {string} */ (opts.cwd),
+        'node_modules',
+        '@astryxdesign',
+        'cli',
+        'bin.cjs',
+      );
+      fs.writeFileSync(
+        bin,
+        `if (process.env.NO_UPDATE_NOTIFIER === undefined) { console.log('notices-on'); process.exit(0); }\nconsole.log('0.6.8');\n`,
+      );
+      return result;
+    };
+    const release = ensureRelease('0.6.8', {cacheDir, run});
+    expect('bin' in release && release.version).toBe('0.6.8');
+  });
+
   it('installs, verifies, and keeps a release, then reuses it', () => {
     const cacheDir = tempDir('cache');
     const npm = fakeNpm();

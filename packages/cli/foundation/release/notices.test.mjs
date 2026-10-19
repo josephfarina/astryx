@@ -9,6 +9,7 @@
 import {afterEach, describe, expect, it} from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {spawn} from 'node:child_process';
 import {
   NOTICE_INTERVAL_MS,
   availableLine,
@@ -88,6 +89,37 @@ describe('takeNotice', () => {
       a: 1000 + NOTICE_INTERVAL_MS,
       b: 2000,
     });
+  });
+
+  it('lets exactly one of many runs finishing at once take a notice (b18)', async () => {
+    const stateDir = tempDir('state');
+    const notices = new URL('./notices.mjs', import.meta.url).href;
+    const source = `
+      const {takeNotice} = await import(${JSON.stringify(notices)});
+      const at = Number(process.argv[1]);
+      while (Date.now() < at) {}
+      process.stdout.write(takeNotice('global', {stateDir: ${JSON.stringify(stateDir)}}) ? 'took' : 'skip');
+    `;
+    const at = String(Date.now() + 1500);
+    const runs = await Promise.all(
+      Array.from(
+        {length: 10},
+        () =>
+          new Promise(resolve => {
+            const child = spawn(
+              process.execPath,
+              ['--input-type=module', '-e', source, at],
+              {stdio: ['ignore', 'pipe', 'inherit']},
+            );
+            let out = '';
+            child.stdout.on('data', d => (out += d));
+            child.on('close', () => resolve(out));
+          }),
+      ),
+    );
+    expect(runs.filter(r => r === 'took')).toHaveLength(1);
+    expect(runs.filter(r => r === 'skip')).toHaveLength(9);
+    expect(fs.existsSync(path.join(stateDir, '.lock-state'))).toBe(false);
   });
 
   it('prints nothing when the time cannot be recorded', () => {
@@ -279,6 +311,26 @@ describe.skipIf(process.platform === 'win32')('noticeLines', () => {
       'The astryx command on this computer runs CLI 0.7.1, which answers every folder itself.',
       'To upgrade, run: npm i -g @astryxdesign/cli@latest',
     ]);
+  });
+
+  it('says nothing in a run inside the release cache, the CLI checking a release it installed', () => {
+    const cacheDir = tempDir('cache');
+    const tmp = path.join(cacheDir, 'releases', '.tmp-0.7.2-1-abc');
+    fs.mkdirSync(tmp, {recursive: true});
+    const stateDir = checked('0.7.3');
+    const old = cliOnPath('0.7.1');
+    const input = {
+      cwd: tmp,
+      self: {version: '0.7.2', root: tempDir('self')},
+      choice: {inProject: true, version: '0.7.2'},
+      cacheDir,
+      stateDir,
+      searchPath: old.bin,
+      env: {},
+      now: 10,
+    };
+    expect(noticeLines(input)).toEqual([]);
+    expect(readGlobalState(stateDir).notifiedAt).toBeUndefined();
   });
 
   it('says nothing about a copy that is not the global copy outside a project', () => {
