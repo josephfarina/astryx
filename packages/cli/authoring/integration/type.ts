@@ -44,6 +44,10 @@ export interface AstryxIntegration {
   };
   /** Where to file issues/feedback for this integration. */
   issuesUrl?: string;
+  /** Link to this integration's docs site, such as its home page. The CLI
+   *  accepts it as a known field; catalogs that list the package may show
+   *  it. */
+  docsiteUrl?: string;
   /** The command that runs the Astryx CLI for this package's users, such as
    *  `acme astryx`. Every command the CLI prints in a project that loads
    *  this package starts with it, in place of the package-manager prefix

@@ -75,6 +75,13 @@ export const doc = {
       example: "'https://github.com/acme/widgets/issues'",
     },
     {
+      name: 'docsiteUrl',
+      type: 'string',
+      description:
+        "Link to this integration's docs site, such as its home page. Catalogs that list the package may show it.",
+      example: "'https://widgets.acme.dev'",
+    },
+    {
       name: 'cliCommand',
       type: 'string',
       description:
@@ -134,7 +141,7 @@ export const doc = {
       text:
         'Validate the manifest with `astryx doctor integration validate`. At the ' +
         'load boundary, a known field of the wrong type is an error, issuesUrl ' +
-        'must be a valid URL, and unknown fields become warnings so an older CLI ' +
+        'and docsiteUrl must be valid URLs, and unknown fields become warnings so an older CLI ' +
         'can still load the fields it understands. Before publishing, also run ' +
         '`templates`, `components`, and `docs` under the same `doctor integration` ' +
         'group. Those leaves compare authored identities with Core and explain ' +

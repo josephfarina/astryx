@@ -57,6 +57,7 @@ const OWN_TESTED = new Set([
   'doctor',
   'doctor integration validate',
   'init',
+  'integration check',
   'integration verify',
   'integration pack',
   'theme add',
@@ -490,6 +491,27 @@ describe('doctor integration validate outside a package (own)', () => {
       expect(empty.envelope.data.issues.map(i => i.code)).toEqual(
         project.envelope.data.issues.map(i => i.code),
       );
+    },
+    SLOW,
+  );
+});
+
+describe('integration check outside a package (own)', () => {
+  it(
+    'writes nothing, reports one no_package issue from validate, and exits 1',
+    async () => {
+      const r = await answer(
+        ['--json', 'integration', 'check'],
+        tmpDir('check'),
+      );
+      expect(r.status).toBe(1);
+      expect(r.written).toEqual([]);
+      expect(r.envelope.type).toBe('integration.check');
+      expect(r.envelope.data.failed).toBe(true);
+      const validate = r.envelope.data.checks.find(c => c.check === 'validate');
+      expect(validate.response.data.issues.map(i => i.code)).toEqual([
+        'no_package',
+      ]);
     },
     SLOW,
   );

@@ -21,7 +21,8 @@ export const doc = {
     'incidental prose mentions, so an exact match always sorts first. A component\'s ' +
     'usage guidance (its best practices) is indexed one tier below its description, ' +
     'so the words a reader types still find it — but a component that IS the answer ' +
-    'always outranks one whose advice merely mentions the term.',
+    'always outranks one whose advice merely mentions the term.' +
+    " In global mode: with `cwd` outside a project, items from integrations installed beside this CLI package (installed for the computer) are searched too, and theme results name no step that adds a theme to an app; inside a project, only the project's own integrations count. See {@link namespace:global} and {@link generic:computer-integrations}.",
   importPath: '@astryxdesign/cli/api',
   signature:
     'search(query: string, options?: SearchOptions): Promise<SearchResponse>',

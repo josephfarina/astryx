@@ -13,6 +13,9 @@
  * - So does every authoring doc on integration manifests and their
  *   contributions: the integration guides' namespaces, the guides placed
  *   under them, and the manifest and discover-source schema docs.
+ * - So does every API function doc whose result depends on whether `cwd` is
+ *   inside a project or on the integrations installed for the computer, in
+ *   its description (function docs have no notes field).
  */
 
 import * as fs from 'node:fs';
@@ -124,6 +127,24 @@ describe('global mode notes', () => {
     expect(
       authoring.filter(({doc}) => !hasNote(doc)).map(({file}) => file),
     ).toEqual([]);
+  });
+
+  it('every API function doc whose result depends on global mode carries the note in its description', async () => {
+    const missing = [];
+    for (const name of [
+      'component',
+      'discover',
+      'docs',
+      'doctor',
+      'init',
+      'search',
+      'upgrade',
+    ]) {
+      const doc = await load(path.join(CLI, 'api', name, `${name}.doc.mjs`));
+      const at = doc.description?.indexOf('In global mode: ') ?? -1;
+      if (at < 0 || !NOTE.test(doc.description.slice(at))) missing.push(name);
+    }
+    expect(missing).toEqual([]);
   });
 
   it('the global guide links down to every child and each child links back up', async () => {

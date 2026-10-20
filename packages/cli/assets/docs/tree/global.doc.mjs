@@ -85,6 +85,7 @@ export const docs = {
         'Updates: a notice after a successful command; nothing upgrades by itself. See {@link generic:updates}.',
         "Agent text: a guide for your computer, beside each project's own agent docs, which win inside that project. See {@link generic:computer-agent-guide}.",
         'Doctor: outside a project, it checks your computer instead of a folder. See {@link command:doctor}.',
+        'Programmatic API: functions run in your process with the package you import, never handing off to another release; with `cwd` outside a project they answer as the commands do there, and each function doc says how. See {@link namespace:api}.',
       ],
     },
 

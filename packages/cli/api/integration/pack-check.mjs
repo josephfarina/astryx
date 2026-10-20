@@ -52,6 +52,8 @@ import {
 import {
   discoverIntegrationComponents,
   docStem,
+  familyImports,
+  isIntegrationMember,
   resolveIntegrationImportPath,
 } from '../../foundation/discovery/component-discovery.mjs';
 import {loadComponentReplacements} from '../component/_adapter.mjs';
@@ -382,11 +384,16 @@ async function validatePackedComponentExports(integration, scratchBase) {
   const issues = [];
   /** @type {Array<{name: string, specifier: string}>} */
   const components = [];
+  // A family doc backs several records: load it, and report it, once.
+  const loads = new Map();
   for (const record of records) {
+    const first = !loads.has(record.docPath);
+    if (first) loads.set(record.docPath, loadComponentDoc(record.docPath));
     let docs;
     try {
-      docs = await loadComponentDoc(record.docPath);
+      docs = await loads.get(record.docPath);
     } catch (err) {
+      if (!first) continue;
       issues.push(
         error(
           'component_doc_unloadable',
@@ -995,6 +1002,24 @@ export async function integrationPackCheck(options = {}) {
   const fileInv = computeRequiredFiles(loaded);
   const {identities: localIdentities, errors: localDiscoveryErrors} =
     await collectIdentities(loaded);
+  // A family lists its members from the module its import names, which the
+  // pack lifecycle may build or rebuild, so they are compared as local
+  // discovery lists them after the pack.
+  const familiesBefore = familyImports(loaded).map(family => family.docPath);
+  /**
+   * @param {Array<{name: string, docPath: string|null}>} records
+   * @param {Set<string>} families
+   */
+  const membersOf = (records, families) =>
+    records
+      .filter(
+        r =>
+          r.docPath != null &&
+          families.has(r.docPath) &&
+          isIntegrationMember(r),
+      )
+      .map(r => r.name);
+  const recordsBefore = discoverIntegrationComponents(loaded);
   for (const discoveryError of localDiscoveryErrors) {
     issues.push(
       error(
@@ -1255,7 +1280,27 @@ export async function integrationPackCheck(options = {}) {
       );
     }
 
-    issues.push(...compareIdentities(localIdentities, packedIdentities));
+    const families = new Set([
+      ...familiesBefore,
+      ...familyImports(loaded).map(family => family.docPath),
+    ]);
+    let localComponents = localIdentities.components;
+    if (families.size > 0) {
+      const stale = new Set(membersOf(recordsBefore, families));
+      const built = new Set(
+        membersOf(discoverIntegrationComponents(loaded), families),
+      );
+      const {identities: afterPack} = await collectIdentities(loaded);
+      localComponents = [
+        ...new Set([
+          ...localComponents.filter(name => !stale.has(name)),
+          ...afterPack.components.filter(name => built.has(name)),
+        ]),
+      ].sort();
+    }
+    // The receipt reports the local inventory that was compared.
+    const comparedLocal = {...localIdentities, components: localComponents};
+    issues.push(...compareIdentities(comparedLocal, packedIdentities));
     issues.push(
       ...(await validatePackedThemeExports(
         loaded,
@@ -1277,7 +1322,7 @@ export async function integrationPackCheck(options = {}) {
       pkgVersion,
       fileInv,
       packResult,
-      localIdentities,
+      comparedLocal,
       packedIdentities,
       issues,
     );

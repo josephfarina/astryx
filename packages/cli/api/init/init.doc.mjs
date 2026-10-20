@@ -24,7 +24,8 @@ export const doc = {
     'With `removeAgents` it removes the managed agent-docs block instead of installing. ' +
     'Outside a project it writes the same files but prints no getting-started steps and no step that adds a theme to an app, since those set up a project the folder does not have. ' +
         "With `user` it sets up the computer instead of the folder: it writes the computer-level agent text, one skill file at `~/.agents/skills/astryx/SKILL.md` and `~/.claude/skills/astryx/SKILL.md` (plus the skill folder of Continue, Kiro, or Windsurf when that tool is installed) that tells agents anywhere on the computer how to use Astryx and to follow a project's own agent docs inside that project, only the chosen agents' files with `agent`; with `user` and `removeAgents` it removes those files and records that the text is turned off. " +
-    'The CLI installed for the computer keeps that text current in the background and follows the recorded choice; package install scripts, project setup, and upgrade never write it.',
+    'The CLI installed for the computer keeps that text current in the background and follows the recorded choice; package install scripts, project setup, and upgrade never write it.' +
+    " In global mode: with `cwd` outside a project, it writes the agent docs and prints no getting-started steps; `user` writes only the agent guide for the computer, in the home folder, and touches nothing in `cwd`. See {@link namespace:global} and {@link generic:computer-agent-guide}.",
   importPath: '@astryxdesign/cli/api',
   signature:
     'init(options?: InitOptions, ctx?: {cwd?: string}): Promise<InitRunResponse | InitRemoveResponse | InitUserResponse>',
