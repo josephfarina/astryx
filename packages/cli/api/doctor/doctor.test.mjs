@@ -229,6 +229,29 @@ describe("doctor — the project's own CLI and Core on different releases", () =
     );
     expect(at(cli).status).toBe('pass');
   });
+
+  it('in a project with no CLI of its own, warns that the started copy answered and names the command that adds the CLI at Core', () => {
+    const dir = mkProject({
+      'package-lock.json': '{}',
+      'node_modules/@astryxdesign/core/package.json': JSON.stringify({
+        name: '@astryxdesign/core',
+        version: '0.0.1',
+      }),
+    });
+    const c = checkVersionAlignment({
+      cwd: dir,
+      coreDir: path.join(dir, 'node_modules/@astryxdesign/core'),
+      nodeVersion: '',
+      configPath: null,
+      configTheme: null,
+      ownCli: false,
+    });
+    expect(c.status).toBe('warn');
+    expect(c.message).toBe(
+      `This project has no Astryx CLI installed; CLI ${cli}, the one you started, answered while its Core is 0.0.1.`,
+    );
+    expect(c.fix).toBe('To match, run: npm install @astryxdesign/cli@0.0.1.');
+  });
 });
 
 describe('checkCliCommand', () => {

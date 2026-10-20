@@ -69,7 +69,7 @@ export const docs = {
       rows: [
         [
           'Inside a project',
-          "The project's own CLI. A project that installs only `@astryxdesign/core` gets the CLI version equal to its Core.",
+          "The project's own CLI. In a project that installs only `@astryxdesign/core`, the astryx command you started, with a hint once a day to add the CLI.",
         ],
         ['Outside any project', 'Your global version.'],
         [

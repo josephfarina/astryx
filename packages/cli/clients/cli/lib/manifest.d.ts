@@ -71,6 +71,8 @@ export interface CLIManifest {
   commands: ManifestCommand[];
   /** Sorted list of fully-qualified command names that support `--json`. */
   jsonSupported: string[];
+  /** What a run may do beyond its command (the hand-off, the daily update check, the agent skill), and the docs topic that explains it. */
+  globalMode: {docs: string; summary: string};
   /** Flat index of response `type` discriminators keyed by command name. */
   responseTypes: Record<string, string[]>;
 }

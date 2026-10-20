@@ -3,22 +3,24 @@
 /**
  * @file Which release answers a run (spec AST-081 FR2, FR3, FR6, FR9).
  *
- * Core decides the release:
+ * As released, the project decides who answers (DEC-10):
  *
- * - **In a project**, the release is the one that matches the project's Core:
- *   the version of the Core the folder reads, else the Core version the
- *   lockfile records, else the newest release the declared Core range allows.
- *   A project that records no Core at all is matched by the CLI it installs
- *   (or locks, or declares).
- *   - When the project installs a CLI of exactly that version, that CLI
- *     answers: every other copy hands the run to it.
- *   - Otherwise the matched release answers. The copy that started the run
- *     answers itself when it is that release, and otherwise hands the run to
- *     the release in the per-user cache, installing it first.
- *   - `astryx upgrade` follows the same rule, so it always runs the codemods of
- *     the release equal to the project's Core.
+ * - **In a project that installs its own CLI**, that CLI answers, whatever its
+ *   version: every other copy hands the run to it, `astryx upgrade` included.
+ * - **In a project with no CLI of its own** (only Core, or nothing installed
+ *   yet), the copy that started the run answers, as it always has; a hint,
+ *   once a day, names the command that adds the CLI at Core's version
+ *   (notices.mjs).
+ * - **When the project's own CLI cannot start**, the release equal to the
+ *   project's Core answers (the matched release): the copy that started the
+ *   run when it is that release, else the release in the per-user cache,
+ *   installed first. When it cannot be obtained, the copy that started the
+ *   run answers, announced (handoff.mjs).
  * - **Outside a project**, every copy answers itself, the global copy
  *   included; a newer release is announced, never installed (notices.mjs).
+ *
+ * Core deciding over the project's own CLI, and the matched release for a
+ * project with only Core, are the next minor release's change.
  *
  * A copy never hands a run to itself, so a run is handed off at most once:
  * the copy it reaches makes the same choice and finds itself.
@@ -55,10 +57,13 @@ import {relativeWithin, samePath} from '../fs/path-compare.mjs';
 /**
  * Who answers the run.
  * @typedef {object} ReleaseChoice
- * @property {'project' | 'matched' | 'carried' | 'fallback'} copy the kind of
- *   copy that answers (`meta.answeredBy.copy`); `fallback` when the matched
- *   release could not be obtained and the copy that started the run answers
- *   instead (spec AST-081 FR2)
+ * @property {'project' | 'starting' | 'matched' | 'carried' | 'fallback'} copy
+ *   the kind of copy that answers (`meta.answeredBy.copy`): `project`, the
+ *   project's own CLI; `starting`, the copy that started the run, in a project
+ *   with no CLI of its own; `matched`, the release equal to the project's
+ *   Core, when the project's own CLI cannot start; `carried`, outside a
+ *   project; `fallback`, the copy that started the run when the matched
+ *   release could not be obtained (spec AST-081 FR2, FR5)
  * @property {'self' | 'project-cli' | 'release'} answer `self`: this copy;
  *   `project-cli`: hand off to the project's CLI; `release`: hand off to the
  *   cached release `version`
@@ -199,6 +204,24 @@ export function isGlobalCopy(cliRoot, cacheDir = userCacheDir()) {
 }
 
 /**
+ * The Core release a project records, without asking the registry: the Core
+ * the folder reads, else the version its lockfile records, else an exact
+ * declared version; null for a range.
+ * @param {import('./project.mjs').ReleaseFacts} facts
+ * @returns {string | null}
+ */
+export function coreVersionOf(facts) {
+  if (facts.core) return facts.core.version;
+  if (isReleaseVersion(facts.lockedCoreVersion)) {
+    return /** @type {string} */ (facts.lockedCoreVersion);
+  }
+  if (facts.declaredCoreRange) {
+    return exactOrRange(CORE_PACKAGE_NAME, facts.declaredCoreRange).version;
+  }
+  return null;
+}
+
+/**
  * The release that matches a project's facts, before any registry question.
  * @param {import('./project.mjs').ReleaseFacts} facts
  * @returns {{version: string | null, range: {name: string, spec: string} | null}}
@@ -264,11 +287,24 @@ export function chooseRelease({
   }
 
   // A project that installs its own CLI is answered by that CLI, whatever its
-  // version, as before global mode (FR2; Core deciding over a differing
-  // project CLI is a next-minor change, AST-017 FR12). Only a project with no
-  // CLI of its own, or one whose CLI cannot start, gets the Core-matched
-  // release.
-  if (facts.cli) {
+  // version, and a project with none by the copy that started the run, as
+  // released (FR2, DEC-10; `spec:AST-017` FR12). Only a project whose own CLI
+  // cannot start gets the Core-matched release.
+  if (!facts.cli) {
+    // A copy that lives inside the project itself, such as a workspace's own
+    // CLI package beside its Core package, is the project's own CLI.
+    const inside = isInside(selfReal, projectRootOf(facts));
+    return {
+      copy: inside ? 'project' : 'starting',
+      answer: 'self',
+      version: self.version,
+      bin: null,
+      coreVersion: coreVersionOf(facts),
+      inProject: true,
+      unavailable: null,
+    };
+  }
+  {
     if (samePath(real(facts.cli.dir), selfReal)) {
       return {
         copy: 'project',

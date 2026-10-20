@@ -27,7 +27,7 @@ export const docs = {
     'project version',
   ],
   description:
-    "Inside a project, the project's own CLI answers, whichever astryx command you start; a project with only Core gets the CLI version equal to its Core. Outside a project, your global install answers. How to see which one did.",
+    "Inside a project, the project's own CLI answers, whichever astryx command you start; in a project with only Core, the astryx command you started answers. Outside a project, your global install answers. How to see which one did.",
   sections: [
     {
       id: 'in-a-project',
@@ -38,9 +38,8 @@ export const docs = {
           style: 'unordered',
           items: [
             "The project installs the CLI, as recommended: that CLI answers, whatever its version, as it always has. When you type the global astryx command instead, it passes the run to the project's CLI, with the same arguments, input, output, and exit status, so either command gives the same answer.",
-            "The project installs only Core: Astryx runs the CLI version equal to the project's Core, from its cache. Any command in such a project, even `astryx --version`, installs that version into the cache the first time. Adding the CLI to the project avoids that download.",
-            'Nothing is installed yet, as in a fresh clone: the version comes from the lockfile, else the newest one the declared range allows.',
-            "The project's CLI is installed but cannot start: the CLI version equal to the project's Core answers instead.",
+            "The project installs only Core, or nothing is installed yet, as in a fresh clone: the astryx command you started answers, as it always has. When its version differs from the project's Core, a hint after the command, once a day, names the command that adds the CLI at Core's version.",
+            "The project's CLI is installed but cannot start: the CLI version equal to the project's Core answers instead (from the installed Core, else the lockfile, else the newest one the declared range allows), installed once into a cache.",
           ],
         },
         {
@@ -69,7 +68,16 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "In text mode, one line on standard error names the version, unless the project's own CLI answered directly:",
+          text: 'In a project with only Core, the hint looks like this, after the command, at most once a day per project:',
+        },
+        {
+          type: 'code',
+          lang: 'text',
+          code: 'astryx: this project has no Astryx CLI installed; answered by CLI 0.7.2 while its Core is 0.6.8. To match, run: npm install @astryxdesign/cli@0.6.8',
+        },
+        {
+          type: 'prose',
+          text: "Otherwise, in text mode, one line on standard error names the version, unless the project's own CLI answered directly:",
         },
         {
           type: 'code',
@@ -83,7 +91,7 @@ export const docs = {
         {
           type: 'code',
           lang: 'json',
-          code: '{"meta": {"answeredBy": {"cli": "0.6.8", "core": "0.6.8", "copy": "matched"}}}',
+          code: '{"meta": {"answeredBy": {"cli": "0.7.2", "core": "0.6.8", "copy": "starting"}}}',
         },
       ],
     },

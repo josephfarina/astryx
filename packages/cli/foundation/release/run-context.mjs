@@ -61,10 +61,10 @@ export function runChoice(cwd = process.cwd()) {
     });
     if (choice.answer === 'self') return choice;
     // Driven in-process (the programmatic API, a test harness), nothing hands
-    // the run off: this copy answers, as a release other than the project's.
+    // the run off: this copy answers, as the copy that started the run.
     return {
       ...choice,
-      copy: choice.inProject ? 'matched' : 'carried',
+      copy: choice.inProject ? 'starting' : 'carried',
       answer: 'self',
       version: self.version,
       bin: null,
@@ -125,7 +125,7 @@ export function carriedCore(options = {}) {
  * `meta.answeredBy` for this run: the answering CLI's version, the Core the
  * run pairs with (`null` when there is none), and which copy answered.
  * @param {string} [cwd]
- * @returns {{cli: string, core: string | null, copy: 'project' | 'matched' | 'carried' | 'fallback'}}
+ * @returns {{cli: string, core: string | null, copy: 'project' | 'starting' | 'matched' | 'carried' | 'fallback'}}
  */
 export function answeredBy(cwd = process.cwd()) {
   const choice = runChoice(cwd);

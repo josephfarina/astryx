@@ -49,7 +49,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "When the project installs its own CLI and you install the project's dependencies first, there is nothing to cache. A project that installs only Core gets its version installed into Astryx's cache once; to skip that download on every run, cache this folder between runs:",
+          text: "When the project installs its own CLI and you install the project's dependencies first, there is nothing to cache. Astryx installs a version into its cache only when a project's own CLI cannot start; to skip that download on every run, cache this folder between runs:",
         },
         {
           type: 'table',
@@ -70,7 +70,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "When the cache cannot be written, a project that installs only Core is answered by the global install, with a warning naming the folder. Point `XDG_CACHE_HOME` at a writable absolute path, or add the CLI to the project and install its dependencies. The global install's daily check and agent guide are skipped quietly when they cannot be written.",
+          text: "When the cache cannot be written, a project whose own CLI cannot start is answered by the global install, with a warning naming the folder. Point `XDG_CACHE_HOME` at a writable absolute path, or reinstall the project's dependencies. The global install's daily check and agent guide are skipped quietly when they cannot be written.",
         },
       ],
     },

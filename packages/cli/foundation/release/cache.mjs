@@ -642,7 +642,7 @@ export function tryLock(lockDir, {now = Date.now()} = {}) {
     if (!lockIsStale(lockDir, now)) return false;
     // The run that held it is gone; end the install it left running, if any,
     // before starting another.
-    endRecordedInstall(lockDir);
+    endRecordedInstall(lockDir, {now});
     const aside = `${lockDir}.stale-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
     try {
       fs.renameSync(lockDir, aside);
@@ -660,7 +660,7 @@ export function tryLock(lockDir, {now = Date.now()} = {}) {
   try {
     fs.writeFileSync(
       path.join(lockDir, 'owner.json'),
-      JSON.stringify({pid: process.pid, host: os.hostname()}),
+      JSON.stringify({pid: process.pid, host: os.hostname(), at: Date.now()}),
     );
   } catch {
     // Without a record the lock still expires on its own.
@@ -669,29 +669,83 @@ export function tryLock(lockDir, {now = Date.now()} = {}) {
 }
 
 /**
- * End the npm process group a stale lock records, when that process is still
- * running and is npm. On computers without a process table to check, the
- * record is trusted only while the lock is younger than any install.
- * @param {string} lockDir
+ * The name of the program running as `pid`, as `ps` or `tasklist` reports it
+ * (lower case, without a folder or `.exe`), or null when it cannot be read.
+ * @param {number} pid
+ * @returns {string | null}
  */
-function endRecordedInstall(lockDir) {
+function programNameOf(pid) {
+  const result =
+    process.platform === 'win32'
+      ? spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
+          encoding: 'utf-8',
+          windowsHide: true,
+          timeout: 5000,
+        })
+      : spawnSync('ps', ['-o', 'comm=', '-p', String(pid)], {
+          encoding: 'utf-8',
+          timeout: 5000,
+        });
+  if (result.status !== 0 || !result.stdout) return null;
+  const first =
+    process.platform === 'win32'
+      ? (/^"([^"]+)"/u.exec(result.stdout.trim())?.[1] ?? '')
+      : result.stdout.trim().split(/\r?\n/u)[0];
+  const name = path
+    .basename(first.trim())
+    .replace(/\.exe$/iu, '')
+    .toLowerCase();
+  return name || null;
+}
+
+/**
+ * End the npm process group a stale lock records, only when that process is
+ * confirmed to be the install: on a computer with a process table
+ * (`/proc`), its command line names npm; elsewhere, the lock is younger than
+ * any install may take and `ps` (or `tasklist`) names node or npm. Anything
+ * less certain is left alone, and the lock is simply taken over, since a
+ * recorded process id can name an unrelated process once the install ended.
+ * @param {string} lockDir
+ * @param {{now?: number, procRoot?: string, nameOf?: (pid: number) => string | null}} [options]
+ *   the clock, the process table's folder, and the name reader, for tests
+ * @returns {'ended' | 'left'} whether a process group was ended
+ */
+export function endRecordedInstall(
+  lockDir,
+  {now = Date.now(), procRoot = '/proc', nameOf = programNameOf} = {},
+) {
   let pid;
   try {
     pid = Number(fs.readFileSync(path.join(lockDir, 'npm.pid'), 'utf-8'));
   } catch {
-    return;
+    return 'left';
   }
-  if (!Number.isInteger(pid) || pid <= 1 || !isAlive(pid)) return;
+  if (!Number.isInteger(pid) || pid <= 1 || !isAlive(pid)) return 'left';
+  /** @type {string | null} */
+  let cmdline = null;
   try {
-    const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8');
-    if (!/npm/.test(cmdline)) return;
+    cmdline = fs.readFileSync(
+      path.join(procRoot, String(pid), 'cmdline'),
+      'utf-8',
+    );
   } catch {
-    // No process table here; fall through on the record alone.
+    // No process table here.
+  }
+  if (cmdline !== null) {
+    if (!/npm/u.test(cmdline)) return 'left';
+  } else {
+    const owner = readJson(path.join(lockDir, 'owner.json'));
+    const age = typeof owner?.at === 'number' ? now - owner.at : Infinity;
+    if (!(age >= 0 && age < INSTALL_TIMEOUT_MS)) return 'left';
+    // `node`, `npm`, or a versioned name such as `node-22`.
+    if (!/^(?:node|npm)(?:[-.\d]*)$/u.test(nameOf(pid) ?? '')) return 'left';
   }
   try {
     process.kill(process.platform === 'win32' ? pid : -pid, 'SIGKILL');
+    return 'ended';
   } catch {
     // Already gone.
+    return 'left';
   }
 }
 

@@ -124,20 +124,39 @@ function run(bin, args, {cwd, pc, env = {}}) {
 
 /**
  * A project with Core installed at `core`, and its own CLI at `cli`.
- * @param {{core?: string, cli?: string, declare?: Record<string, string>}} spec
+ * @param {{core?: string, cli?: string, brokenCli?: string, declare?: Record<string, string>}} spec
  */
-function makeProject({core, cli, declare}) {
+function makeProject({core, cli, brokenCli, declare}) {
   const deps = {
     ...(core ? {'@astryxdesign/core': core} : {}),
     ...(cli ? {'@astryxdesign/cli': cli} : {}),
+    ...(brokenCli ? {'@astryxdesign/cli': brokenCli} : {}),
     ...declare,
   };
   const dir = project(tempDir('project'), deps);
   if (core) installCore(dir, core);
   if (cli)
     placeCli(path.join(dir, 'node_modules', '@astryxdesign', 'cli'), cli);
+  // A project CLI that cannot start: its package, with no astryx command.
+  if (brokenCli) {
+    writeJson(
+      path.join(dir, 'node_modules', '@astryxdesign', 'cli', 'package.json'),
+      {
+        name: '@astryxdesign/cli',
+        version: brokenCli,
+      },
+    );
+  }
   return dir;
 }
+
+/**
+ * The once-a-day hint in a project with no CLI of its own.
+ * @param {string} answered
+ * @param {string} core
+ */
+const noCliHint = (answered, core) =>
+  `astryx: this project has no Astryx CLI installed; answered by CLI ${answered} while its Core is ${core}. To match, run: npm install @astryxdesign/cli@${core}`;
 
 /** @param {string} version */
 const handedTo = version => (/** @type {string} */ from) =>
@@ -268,20 +287,30 @@ describe.skipIf(!POSIX)(
       expect(r.lines).toEqual([handedTo('9.0.0')('9.0.5')]);
     });
 
-    it('G4 Core only, no CLI', () => {
+    it('G4 Core only, no CLI: the copy that started the run answers, as released, with a hint once a day; nothing is installed', () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
-      seedPackedRelease(pc.astryxCache, '9.0.1');
       const dir = makeProject({core: '9.0.1'});
       const r = run(g.bin, ['--version'], {cwd: dir, pc});
-      expect(r.stdout).toBe('9.0.1');
-      expect(r.lines).toEqual([matchedLine('9.0.1')]);
+      expect(r.stdout).toBe('9.0.0');
+      expect(r.lines).toEqual([noCliHint('9.0.0', '9.0.1')]);
+      // Once a day per project.
+      expect(run(g.bin, ['--version'], {cwd: dir, pc}).lines).toEqual([]);
+      const json = run(g.bin, ['docs', '--json'], {cwd: dir, pc});
+      expect(JSON.parse(json.stdout).meta.answeredBy).toEqual({
+        cli: '9.0.0',
+        core: '9.0.1',
+        copy: 'starting',
+      });
+      expect(fs.existsSync(path.join(pc.astryxCache, 'releases'))).toBe(false);
+      // A copy equal to the project's Core prints no hint.
+      const same = makeProject({core: '9.0.0'});
+      expect(run(g.bin, ['--version'], {cwd: same, pc}).lines).toEqual([]);
     });
 
-    it('G5 a fresh clone answers with the release its lockfile records, writing nothing there', () => {
+    it('G5 a fresh clone, nothing installed: the copy that started the run answers, naming the Core its lockfile records, writing nothing there', () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
-      seedPackedRelease(pc.astryxCache, '9.0.1');
       const dir = makeProject({declare: {'@astryxdesign/core': '^9.0.0'}});
       writeJson(path.join(dir, 'package-lock.json'), {
         lockfileVersion: 3,
@@ -292,22 +321,23 @@ describe.skipIf(!POSIX)(
       });
       const before = filesIn(dir);
       const r = run(g.bin, ['--version'], {cwd: dir, pc});
-      expect(r.stdout).toBe('9.0.1');
-      expect(r.lines).toEqual([matchedLine('9.0.1')]);
+      expect(r.stdout).toBe('9.0.0');
+      expect(r.lines).toEqual([noCliHint('9.0.0', '9.0.1')]);
       expect(filesIn(dir)).toEqual(before);
     });
 
-    it('G6 the installed Core wins over a lockfile that disagrees', () => {
+    it('G6 the installed Core wins over a lockfile that disagrees, for the release a project whose CLI cannot start gets', () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
       seedPackedRelease(pc.astryxCache, '9.0.1');
-      const dir = makeProject({core: '9.0.1'});
+      const dir = makeProject({core: '9.0.1', brokenCli: '9.0.0'});
       writeJson(path.join(dir, 'package-lock.json'), {
         lockfileVersion: 3,
         packages: {'node_modules/@astryxdesign/core': {version: '9.0.0'}},
       });
       const r = run(g.bin, ['--version'], {cwd: dir, pc});
       expect(r.stdout).toBe('9.0.1');
+      expect(r.lines).toEqual([matchedLine('9.0.1')]);
     });
 
     it('G7 a workspace member with its own Core but no CLI of its own, and any other member, use the root CLI', () => {
@@ -487,7 +517,7 @@ describe.skipIf(!POSIX)(
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
       seedPackedRelease(pc.astryxCache, '9.0.1');
-      const dir = makeProject({core: '9.0.1'});
+      const dir = makeProject({core: '9.0.1', brokenCli: '9.0.1'});
       const pkg = JSON.parse(
         fs.readFileSync(path.join(dir, 'package.json'), 'utf8'),
       );
@@ -499,7 +529,7 @@ describe.skipIf(!POSIX)(
       expect(run(g.bin, ['--version'], {cwd: dir, pc}).stdout).toBe('9.0.1');
       // A release that must be fetched and cannot be: the starting copy
       // answers, as before global mode, without touching the project.
-      const missing = makeProject({core: '9.0.7'});
+      const missing = makeProject({core: '9.0.7', brokenCli: '9.0.7'});
       const missingBefore = filesIn(missing);
       const r = run(g.bin, ['--version'], {cwd: missing, pc});
       expect(r.status).toBe(0);
@@ -528,7 +558,7 @@ describe.skipIf(!POSIX)(
     );
 
     it.skipIf(ROOT)(
-      'G17 the cache cannot be written: the global copy still answers outside, and in a project that needs a release it answers instead, with a warning and copy fallback',
+      'G17 the cache cannot be written: the global copy still answers outside and in a Core-only project; when a project whose CLI cannot start needs a release, it answers instead, with a warning and copy fallback',
       () => {
         const pc = computer();
         const g = globalCli('npm', '9.0.0', {root: pc.home});
@@ -541,7 +571,11 @@ describe.skipIf(!POSIX)(
           });
           expect(outside.status).toBe(0);
           expect(outside.stdout).toBe('9.0.0');
-          const dir = makeProject({core: '9.0.1'});
+          const coreOnly = makeProject({core: '9.0.1'});
+          expect(run(g.bin, ['--version'], {cwd: coreOnly, pc}).stdout).toBe(
+            '9.0.0',
+          );
+          const dir = makeProject({core: '9.0.1', brokenCli: '9.0.1'});
           const text = run(g.bin, ['--version'], {cwd: dir, pc});
           expect(text.status).toBe(0);
           expect(text.stdout).toBe('9.0.0');
@@ -827,10 +861,9 @@ describe.skipIf(!POSIX)(
       expect(result.stdout.trim()).toBe('9.0.0');
     });
 
-    it("G28 a Yarn Plug'n'Play project answers with the release equal to its Core, from the cache", () => {
+    it("G28 a Yarn Plug'n'Play project, whose own CLI Astryx cannot see, is answered by the copy that started the run", () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
-      seedPackedRelease(pc.astryxCache, '9.0.1');
       const dir = makeProject({declare: {'@astryxdesign/core': '^9.0.0'}});
       fs.writeFileSync(path.join(dir, '.pnp.cjs'), '');
       fs.writeFileSync(
@@ -838,8 +871,12 @@ describe.skipIf(!POSIX)(
         '__metadata:\n  version: 8\n\n"@astryxdesign/core@npm:^9.0.0":\n  version: 9.0.1\n',
       );
       const r = run(g.bin, ['--version'], {cwd: dir, pc});
-      expect(r.stdout).toBe('9.0.1');
-      expect(r.lines).toEqual([matchedLine('9.0.1')]);
+      expect(r.stdout).toBe('9.0.0');
+      expect(r.lines).toEqual([
+        expect.stringMatching(
+          /^astryx: this project has no Astryx CLI installed; answered by CLI 9\.0\.0 while its Core is 9\.0\.1\. To match, run: yarn add @astryxdesign\/cli@9\.0\.1$/u,
+        ),
+      ]);
     });
 
     it('G29 a package runner that reuses the global install answers as the global copy', () => {
@@ -876,7 +913,7 @@ describe.skipIf(!POSIX)(
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
       const cached = seedPackedRelease(pc.astryxCache, '9.0.2');
-      const dir = makeProject({core: '9.0.2'});
+      const dir = makeProject({core: '9.0.2', brokenCli: '9.0.2'});
       expect(run(g.bin, ['--version'], {cwd: dir, pc}).stdout).toBe('9.0.2');
       fs.rmSync(
         path.join(
@@ -1347,14 +1384,14 @@ describe.skipIf(!POSIX)(
         '9.0.0',
       );
       acmeWidgets(root, {topic: 'acme-door'});
-      // The project installs only Core 9.0.0, so the door's copy, that
-      // release, answers it.
+      // The project installs only Core 9.0.0, so the door's copy, which
+      // started the run, answers it.
       const dir = makeProject({core: '9.0.0'});
       writeJson(path.join(dir, 'package-lock.json'), {lockfileVersion: 3});
       const discover = JSON.parse(
         run(cli.bin, ['discover', '--json'], {cwd: dir, pc}).stdout,
       );
-      expect(discover.meta.answeredBy.copy).toBe('matched');
+      expect(discover.meta.answeredBy.copy).toBe('starting');
       expect(discover.meta.available).toEqual([
         {
           name: '@acme/widgets',
@@ -1491,10 +1528,10 @@ describe.skipIf(!POSIX)(
       ).toBe(false);
     });
 
-    it('G48 offline, a project that installs only Core: the starting copy answers, with one warning and copy fallback', () => {
+    it('G48 offline, a project whose own CLI cannot start: the starting copy answers, with one warning and copy fallback', () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
-      const dir = makeProject({core: '9.0.3'});
+      const dir = makeProject({core: '9.0.3', brokenCli: '9.0.3'});
       const r = run(g.bin, ['--version'], {cwd: dir, pc});
       expect(r.status).toBe(0);
       expect(r.stdout).toBe('9.0.0');
@@ -1514,7 +1551,7 @@ describe.skipIf(!POSIX)(
     it('G49 offline, a release that failed to install is not retried for ten minutes, by any copy sharing the cache', () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
-      const dir = makeProject({core: '9.0.3'});
+      const dir = makeProject({core: '9.0.3', brokenCli: '9.0.3'});
       const first = run(g.bin, ['--version'], {cwd: dir, pc});
       expect(first.lines.filter(l => l.includes('installing'))).toHaveLength(1);
       const record = path.join(

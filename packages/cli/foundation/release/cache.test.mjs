@@ -16,6 +16,8 @@ import {
   npmCommand,
   runNpm,
   tryLock,
+  endRecordedInstall,
+  INSTALL_TIMEOUT_MS,
 } from './cache.mjs';
 import {
   cleanupFixtures,
@@ -204,6 +206,107 @@ describe('cachedRelease', () => {
   });
 });
 
+describe.skipIf(process.platform === 'win32')(
+  'a stale lock ends a recorded process group only when it is surely the install',
+  () => {
+    /** @type {import('node:child_process').ChildProcess[]} */
+    const started = [];
+    afterEach(() => {
+      for (const child of started.splice(0)) {
+        try {
+          process.kill(-(/** @type {number} */ (child.pid)), 'SIGKILL');
+        } catch {
+          // Already gone.
+        }
+      }
+    });
+    /** A process in a group of its own: `node` or `sleep`. @param {'node' | 'sleep'} kind */
+    const startGroup = kind => {
+      const child =
+        kind === 'node'
+          ? spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+              detached: true,
+              stdio: 'ignore',
+            })
+          : spawn('sleep', ['60'], {detached: true, stdio: 'ignore'});
+      started.push(child);
+      return /** @type {number} */ (child.pid);
+    };
+    /** @param {number} pid @param {number} at */
+    const lockFor = (pid, at) => {
+      const lockDir = path.join(tempDir('lock'), '.lock-9.9.9');
+      fs.mkdirSync(lockDir, {recursive: true});
+      fs.writeFileSync(path.join(lockDir, 'npm.pid'), String(pid));
+      fs.writeFileSync(
+        path.join(lockDir, 'owner.json'),
+        JSON.stringify({pid: 999999, host: os.hostname(), at}),
+      );
+      return lockDir;
+    };
+    const alive = (/** @type {number} */ pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const noProc = path.join(os.tmpdir(), 'no-proc-here');
+
+    it('with a process table: only a command line that names npm', () => {
+      const now = Date.now();
+      const other = startGroup('sleep');
+      const procRoot = tempDir('proc');
+      fs.mkdirSync(path.join(procRoot, String(other)));
+      fs.writeFileSync(
+        path.join(procRoot, String(other), 'cmdline'),
+        'sleep\u000060',
+      );
+      // The process table says it is not npm, whatever ps would say.
+      expect(
+        endRecordedInstall(lockFor(other, now), {
+          now,
+          procRoot,
+          nameOf: () => 'node',
+        }),
+      ).toBe('left');
+      expect(alive(other)).toBe(true);
+    });
+
+    it('without one: only a young lock whose process is node or npm', async () => {
+      const now = Date.now();
+      const sleeper = startGroup('sleep');
+      // The name says it is not the install: left alone.
+      expect(
+        endRecordedInstall(lockFor(sleeper, now), {now, procRoot: noProc}),
+      ).toBe('left');
+      expect(alive(sleeper)).toBe(true);
+      const node = startGroup('node');
+      // A lock older than any install: its process id is not trusted.
+      expect(
+        endRecordedInstall(lockFor(node, now - INSTALL_TIMEOUT_MS - 1), {
+          now,
+          procRoot: noProc,
+        }),
+      ).toBe('left');
+      // A lock with no recorded start: not trusted either.
+      const unknown = lockFor(node, now);
+      fs.writeFileSync(
+        path.join(unknown, 'owner.json'),
+        JSON.stringify({pid: 999999, host: os.hostname()}),
+      );
+      expect(endRecordedInstall(unknown, {now, procRoot: noProc})).toBe('left');
+      expect(alive(node)).toBe(true);
+      // Young, and ps names node: ended.
+      expect(
+        endRecordedInstall(lockFor(node, now - 1000), {now, procRoot: noProc}),
+      ).toBe('ended');
+      await new Promise(resolve => setTimeout(resolve, 200));
+      expect(alive(node)).toBe(false);
+    });
+  },
+);
+
 describe('a declared range never reaches a shell', () => {
   it('reads only version ranges as ranges', () => {
     for (const ok of [
@@ -332,6 +435,7 @@ describe('tryLock', () => {
     expect(JSON.parse(fs.readFileSync(owner, 'utf8'))).toEqual({
       pid: process.pid,
       host: os.hostname(),
+      at: expect.any(Number),
     });
   });
 
@@ -535,18 +639,23 @@ describe('no install outlives its run', () => {
     return done();
   };
 
-  it('ends npm when the run that started it is killed outright', async () => {
+  it('ends npm when the run that started it is killed outright, and removes its process-id record', async () => {
     const dir = tempDir('orphan');
     const pidFile = path.join(dir, 'npm-pid');
+    // The record a release lock keeps of npm's process id.
+    const record = path.join(dir, 'npm.pid');
     const cacheModule = new URL('./cache.mjs', import.meta.url).href;
     const sleeper = `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setTimeout(() => {}, 120000);`;
-    const script = `import(${JSON.stringify(cacheModule)}).then(m => m.runNpm([], {timeoutMs: 120000, npm: {command: process.execPath, prefix: ['-e', ${JSON.stringify(sleeper)}], shell: false}}));`;
+    const script = `import(${JSON.stringify(cacheModule)}).then(m => m.runNpm([], {timeoutMs: 120000, pidFile: ${JSON.stringify(record)}, npm: {command: process.execPath, prefix: ['-e', ${JSON.stringify(sleeper)}], shell: false}}));`;
     const cli = spawn(process.execPath, ['-e', script], {stdio: 'ignore'});
     expect(await waitFor(() => fs.existsSync(pidFile), 10_000)).toBe(true);
+    expect(await waitFor(() => fs.existsSync(record), 5_000)).toBe(true);
     const npmPid = Number(fs.readFileSync(pidFile, 'utf-8'));
     expect(alive(npmPid)).toBe(true);
     cli.kill('SIGKILL');
     expect(await waitFor(() => !alive(npmPid), 5_000)).toBe(true);
+    // A later takeover finds no id that could now name another process.
+    expect(await waitFor(() => !fs.existsSync(record), 5_000)).toBe(true);
   }, 30_000);
 
   it('ends npm, which ignores Ctrl-C, when the run gets Ctrl-C', async () => {

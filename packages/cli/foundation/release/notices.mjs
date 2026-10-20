@@ -331,6 +331,40 @@ export function alignCliAndCore({cwd, cli, core}) {
 }
 
 /**
+ * The hint for a project with no CLI of its own, answered by `answered` while
+ * its Core is `core`: the command that adds the CLI at Core's version, with
+ * the project's package manager.
+ * @param {{cwd: string, answered: string, core: string}} options
+ * @returns {{root: string, line: string}}
+ */
+export function noCliHint({cwd, answered, core}) {
+  const root = projectRootOf(readReleaseFacts(cwd)) ?? cwd;
+  return {root, line: noCliHintLine(answered, core, addCliCommand(root, core))};
+}
+
+/**
+ * The hint's text.
+ * @param {string} answered
+ * @param {string} core
+ * @param {string} command the command that adds the CLI at Core's version
+ * @returns {string}
+ */
+export function noCliHintLine(answered, core, command) {
+  return `astryx: this project has no Astryx CLI installed; answered by CLI ${answered} while its Core is ${core}. To match, run: ${command}`;
+}
+
+/**
+ * The command that installs the CLI at `version` in the project at `root`,
+ * with its package manager.
+ * @param {string} root
+ * @param {string} version
+ * @returns {string}
+ */
+export function addCliCommand(root, version) {
+  return `${ADD[detectPackageManager(root)] ?? ADD.npm} ${CLI_PACKAGE}@${version}`;
+}
+
+/**
  * Whether the project's release is older than the newest release known, and
  * the commands that upgrade it.
  * @param {{cwd: string, current: string, stateDir?: string}} options
@@ -406,7 +440,7 @@ export function oldGlobalLines(old) {
  * @param {{
  *   cwd: string,
  *   self: {version: string, root: string},
- *   choice: {inProject: boolean, version: string},
+ *   choice: {inProject: boolean, version: string, copy?: string, coreVersion?: string | null},
  *   json?: boolean,
  *   stateDir?: string,
  *   cacheDir?: string,
@@ -436,8 +470,32 @@ export function noticeLines({
   const lines = [];
   const take = (/** @type {string} */ key) => takeNotice(key, {stateDir, now});
   try {
+    // A project with no CLI of its own, answered by a release other than its
+    // Core's: once a day per project, how to match them (FR2).
+    if (
+      choice.inProject &&
+      choice.copy === 'starting' &&
+      choice.coreVersion &&
+      choice.coreVersion !== choice.version
+    ) {
+      const hint = noCliHint({
+        cwd,
+        answered: choice.version,
+        core: choice.coreVersion,
+      });
+      if (take(`no-cli:${hint.root}`)) lines.push(hint.line);
+    }
+  } catch {
+    // A hint never fails a run.
+  }
+  try {
     if (choice.inProject) {
-      const lag = projectLag({cwd, current: choice.version, stateDir});
+      // The project's version is its own CLI's, or, with none, its Core's.
+      const current =
+        choice.copy === 'starting' && choice.coreVersion
+          ? choice.coreVersion
+          : choice.version;
+      const lag = projectLag({cwd, current, stateDir});
       if (lag && take(`project:${lag.root}`)) {
         lines.push(
           availableLine(lag.current, lag.newest),

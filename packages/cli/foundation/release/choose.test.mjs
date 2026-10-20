@@ -116,32 +116,20 @@ describe('chooseRelease in a project', () => {
     ).toMatchObject({copy: 'project', answer: 'project-cli', version: '0.6.8'});
   });
 
-  it('answers itself as the matched release in a Core-only project equal to it', () => {
-    const root = project(tempDir(), {'@astryxdesign/core': '0.7.2'});
-    installCore(root, '0.7.2');
-    expect(
-      chooseRelease({
-        cwd: root,
-        self: runnerCopy('0.7.2'),
-        cacheDir: tempDir('cache'),
-      }),
-    ).toMatchObject({copy: 'matched', answer: 'self', version: '0.7.2'});
-  });
-
-  it('matches a Core-only project to its Core', () => {
+  it('answers a Core-only project with the copy that started the run, as released, naming its Core', () => {
     const root = project(tempDir(), {'@astryxdesign/core': '0.6.8'});
     installCore(root, '0.6.8');
-    const choice = chooseRelease({
-      cwd: path.join(root),
-      self: runnerCopy('0.7.1'),
-      cacheDir: tempDir('cache'),
-    });
-    expect(choice).toMatchObject({
-      copy: 'matched',
-      answer: 'release',
-      version: '0.6.8',
-      coreVersion: '0.6.8',
-    });
+    for (const self of [runnerCopy('0.7.1'), globalCopy('0.6.8')]) {
+      expect(
+        chooseRelease({cwd: root, self, cacheDir: tempDir('cache')}),
+      ).toMatchObject({
+        copy: 'starting',
+        answer: 'self',
+        version: self.version,
+        coreVersion: '0.6.8',
+        inProject: true,
+      });
+    }
   });
 
   it('answers a workspace member with its own Core with the root CLI, as before global mode', () => {
@@ -180,8 +168,32 @@ describe('chooseRelease in a project', () => {
     });
   });
 
-  it('matches a fresh clone from its lockfile, else its declared range', () => {
+  it('answers a fresh clone with the copy that started the run, naming the Core its lockfile records', () => {
     const root = project(tempDir(), {'@astryxdesign/core': '^0.6.0'});
+    writeJson(path.join(root, 'package-lock.json'), {
+      lockfileVersion: 3,
+      packages: {'node_modules/@astryxdesign/core': {version: '0.6.8'}},
+    });
+    /** @type {string[]} */
+    const asked = [];
+    expect(
+      chooseRelease({
+        cwd: root,
+        self: runnerCopy('0.7.2'),
+        cacheDir: tempDir('cache'),
+        resolve: (name, spec) => {
+          asked.push(`${name}@${spec}`);
+          return null;
+        },
+      }),
+    ).toMatchObject({copy: 'starting', version: '0.7.2', coreVersion: '0.6.8'});
+    // No registry question for a project the starting copy answers.
+    expect(asked).toEqual([]);
+  });
+
+  it('matches a project whose own CLI cannot start from its lockfile, else its declared range, else reports the range unavailable', () => {
+    const root = project(tempDir(), {'@astryxdesign/core': '^0.6.0'});
+    installStandInCli(root, '0.6.0', {bin: false});
     writeJson(path.join(root, 'package-lock.json'), {
       lockfileVersion: 3,
       packages: {'node_modules/@astryxdesign/core': {version: '0.6.8'}},
@@ -192,39 +204,33 @@ describe('chooseRelease in a project', () => {
         self: runnerCopy('0.7.2'),
         cacheDir: tempDir('cache'),
       }),
-    ).toMatchObject({
-      copy: 'matched',
-      version: '0.6.8',
-    });
+    ).toMatchObject({copy: 'matched', version: '0.6.8'});
     const bare = project(tempDir(), {'@astryxdesign/core': '^0.6.0'});
+    installStandInCli(bare, '0.6.0', {bin: false});
     /** @type {string[]} */
     const asked = [];
-    const choice = chooseRelease({
-      cwd: bare,
-      self: runnerCopy('0.7.2'),
-      cacheDir: tempDir('cache'),
-      resolve: (name, spec) => {
-        asked.push(`${name}@${spec}`);
-        return '0.6.8';
-      },
-    });
+    expect(
+      chooseRelease({
+        cwd: bare,
+        self: runnerCopy('0.7.2'),
+        cacheDir: tempDir('cache'),
+        resolve: (name, spec) => {
+          asked.push(`${name}@${spec}`);
+          return '0.6.8';
+        },
+      }),
+    ).toMatchObject({copy: 'matched', answer: 'release', version: '0.6.8'});
     expect(asked).toEqual(['@astryxdesign/core@^0.6.0']);
-    expect(choice).toMatchObject({
-      copy: 'matched',
-      answer: 'release',
-      version: '0.6.8',
-    });
-  });
-
-  it('reports a declared range no published release fits as unavailable', () => {
-    const bare = project(tempDir(), {'@astryxdesign/core': '^9.0.0'});
-    const choice = chooseRelease({
-      cwd: bare,
-      self: runnerCopy('0.7.2'),
-      cacheDir: tempDir('cache'),
-      resolve: () => null,
-    });
-    expect(choice.unavailable).toMatch(/\^9\.0\.0/);
+    const none = project(tempDir(), {'@astryxdesign/core': '^9.0.0'});
+    installStandInCli(none, '0.6.0', {bin: false});
+    expect(
+      chooseRelease({
+        cwd: none,
+        self: runnerCopy('0.7.2'),
+        cacheDir: tempDir('cache'),
+        resolve: () => null,
+      }).unavailable,
+    ).toMatch(/\^9\.0\.0/);
   });
 
   it("passes a project CLI with no astryx command over for the release matching the project's Core", () => {

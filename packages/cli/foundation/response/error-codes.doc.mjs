@@ -282,7 +282,7 @@ export const doc = {
     {
       value: 'ERR_VERSIONS_UNAVAILABLE',
       description:
-        'The CLI release this run needs could not run: the release that matches the project\'s Core is not installed and could not be fetched, the project\'s own CLI could not be started, or the Core a command needs outside a project could not be installed. Nothing was written.',
+        'Nothing could answer this run, and nothing was written: the project\'s own CLI could not start and nothing else could answer, or the Core a command needs outside a project could not be installed.',
     },
     {
       value: 'ERR_PROJECT_REQUIRED',

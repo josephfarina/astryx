@@ -23,7 +23,7 @@ export const doc = {
     'their install receipts: unchanged files are updated, non-overlapping edits are merged, ' +
     'and conflicts are left untouched. `list` only lists codemods; `registry` only updates ' +
     'copied compositions.' +
-    " In global mode: the CLI always runs `upgrade` with the version that matches the project's installed Core; this function runs the codemods of the package it is imported from. With `cwd` outside a project, `list` lists this release's codemods, `registry` finds no copied compositions, and a migration writes nothing and fails with `ERR_VERSION_DETECT`. See {@link namespace:global} and {@link generic:who-answers}.",
+    " In global mode: in a project, the CLI runs `upgrade` with the project's own CLI, whichever astryx command started it (in a project with no CLI of its own, the one you started); this function runs the codemods of the package it is imported from. With `cwd` outside a project, `list` lists this release's codemods, `registry` finds no copied compositions, and a migration writes nothing and fails with `ERR_VERSION_DETECT`. See {@link namespace:global} and {@link generic:who-answers}.",
   importPath: '@astryxdesign/cli/api',
   signature:
     'upgrade(options?: UpgradeOptions, ctx?: {cwd?: string}): Promise<UpgradeListResponse | UpgradeRegistryResponse | UpgradeStatusResponse | UpgradeRunResponse>',

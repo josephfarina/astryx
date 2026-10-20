@@ -21,7 +21,7 @@ export const doc = {
   fields: [
     {
       name: 'Success envelope',
-      type: '{ apiVersion: number; type: string; package?: string; data: unknown; meta?: { answeredBy?: { cli: string; core: string | null; copy: "project" | "matched" | "carried" | "fallback" } } & Record<string, unknown> }',
+      type: '{ apiVersion: number; type: string; package?: string; data: unknown; meta?: { answeredBy?: { cli: string; core: string | null; copy: "project" | "starting" | "matched" | "carried" | "fallback" } } & Record<string, unknown> }',
       description:
         'Emitted for every successful command in --json mode: a type ' +
         'discriminator, the package that owns what the response is about, ' +
@@ -65,7 +65,7 @@ export const doc = {
           name: 'meta',
           type: 'Record<string, unknown>',
           description:
-            "Optional, emitted as a sibling of data (never merged in). `answeredBy` is on every successful result of a release that has it: `{cli, core, copy}`, the answering CLI version, the Core it pairs with (or null), and which copy answered: `project` (the project's own CLI), `matched` (the release equal to the project's Core), `carried` (outside a project), or `fallback` (the matched release could not be obtained, so the project's own CLI or the starting copy answered). A `deprecations` field is an array of `{id, replacements}` entries; each stable lifecycle id names the replacement commands without changing the command data. Other fields may be added (spec:AST-017 FR13).",
+            "Optional, emitted as a sibling of data (never merged in). `answeredBy` is on every successful result of a release that has it: `{cli, core, copy}`, the answering CLI version, the Core it pairs with (or null), and which copy answered: `project` (the project's own CLI), `starting` (the copy that started the run, in a project with no CLI of its own), `matched` (the release equal to the project's Core, when the project's own CLI cannot start), `carried` (outside a project), or `fallback` (the matched release could not be obtained, so the starting copy answered). A `deprecations` field is an array of `{id, replacements}` entries; each stable lifecycle id names the replacement commands without changing the command data. Other fields may be added (spec:AST-017 FR13).",
         },
       ],
     },

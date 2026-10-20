@@ -385,6 +385,10 @@ export async function createProgram() {
           `Grep a field across records, e.g.  ${formatCliCommand('search button')} | grep "^command:". ` +
             'Errors/warnings go to stderr; use --json for structured parsing.',
         ),
+        text(
+          "Global mode: in a project, the project's own CLI answers (this copy hands the run to it); a copy installed for the computer checks for updates once a day and keeps an agent skill in your home folder. " +
+            `See ${formatCliCommand('docs global')}.`,
+        ),
       ]
         .map(block => block.toString())
         .join('\n\n'),

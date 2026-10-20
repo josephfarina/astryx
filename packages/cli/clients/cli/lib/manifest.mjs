@@ -41,6 +41,16 @@ import {commandDocsOf} from './define-command.mjs';
 import {doc as manifestDoc} from '../commands/manifest.doc.mjs';
 
 /**
+ * What a run may do beyond the command it was asked for (spec AST-081;
+ * `spec:AST-017` FR14), and where it is explained.
+ */
+export const GLOBAL_MODE = Object.freeze({
+  docs: 'astryx docs global',
+  summary:
+    "In a folder that belongs to a project, the project's own CLI answers: this copy hands the run to it. In a project with no CLI of its own, and outside any project, this copy answers. A copy installed for the computer checks the registry for a newer release once a day in the background, and keeps one agent skill file in the home folder.",
+});
+
+/**
  * Envelopes the CLI layer builds itself, so the wrapped FunctionDoc cannot
  * declare them: `manifest` wraps no API function, `theme build` batches several
  * `themeBuild()` receipts, and `theme add` with no slug (or `--list`) answers
@@ -270,6 +280,7 @@ export function buildManifest(program, opts = {}) {
     globalOptions: describeGlobalOptions(program),
     commands,
     jsonSupported: [...jsonSupported].sort(),
+    globalMode: GLOBAL_MODE,
     // Flat index of every response `type` discriminator the CLI can emit,
     // keyed by command — lets an agent know what to expect back per call.
     responseTypes: Object.fromEntries(

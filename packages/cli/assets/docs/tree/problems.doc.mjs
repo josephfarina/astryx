@@ -62,7 +62,7 @@ export const docs = {
         },
         {
           type: 'prose',
-          text: "The project needs a version you did not have, and Astryx is installing it into its cache once. The second line means another run is installing it; this one waits, up to 15 minutes. To avoid the wait, install the project's dependencies.",
+          text: "The project's own CLI cannot start, so Astryx is installing the CLI version equal to its Core into its cache once. The second line means another run is installing it; this one waits, up to 15 minutes. To avoid the wait, install the project's dependencies.",
         },
       ],
     },
@@ -107,7 +107,7 @@ export const docs = {
         },
         {
           type: 'prose',
-          text: "The project installs only Core (or its own CLI cannot start), needs a CLI version you do not have, and Astryx could not get it, so the command still runs: the astryx command you started answers, as before global mode. Its answers may not match the project's Core until you fix the cause. With `--json`, `meta.answeredBy.copy` is `fallback`. Astryx waits 10 minutes before trying the download again; adding the CLI to the project avoids it.",
+          text: "The project's own CLI cannot start, so Astryx needs the CLI version equal to its Core, and could not get it, so the command still runs: the astryx command you started answers, as before global mode. Its answers may not match the project's Core until you fix the cause. With `--json`, `meta.answeredBy.copy` is `fallback`. Astryx waits 10 minutes before trying the download again; reinstalling the project's dependencies fixes the project's own CLI.",
         },
         {
           type: 'list',

@@ -61,14 +61,24 @@ if (pidFile && child.pid) {
   }
 }
 
+/**
+ * Remove the process-id record: once npm is ended, its id may be reused by
+ * an unrelated process, which a later takeover must never end.
+ */
+function forgetPid() {
+  if (pidFile) fs.rmSync(pidFile, {force: true});
+}
+
 const limit = setTimeout(() => {
   endGroup('SIGKILL');
+  forgetPid();
   process.exit(124);
 }, timeoutMs);
 
 const watch = setInterval(() => {
   if (process.ppid !== parent) {
     endGroup('SIGKILL');
+    forgetPid();
     process.exit(1);
   }
 }, 500);
@@ -89,6 +99,7 @@ for (const signal of /** @type {NodeJS.Signals[]} */ ([
     // npm defers these signals until its work finishes, and it holds this
     // run's output pipes open, so it is ended outright.
     endGroup('SIGKILL');
+    forgetPid();
     clearTimeout(limit);
     clearInterval(watch);
     process.removeAllListeners(signal);
@@ -99,13 +110,14 @@ for (const signal of /** @type {NodeJS.Signals[]} */ ([
 child.on('error', () => {
   clearTimeout(limit);
   clearInterval(watch);
+  forgetPid();
   process.exit(127);
 });
 
 child.on('exit', (code, signal) => {
   clearTimeout(limit);
   clearInterval(watch);
-  if (pidFile) fs.rmSync(pidFile, {force: true});
+  forgetPid();
   if (signal) {
     process.kill(process.pid, signal);
     return;

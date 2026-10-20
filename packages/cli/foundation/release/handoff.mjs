@@ -228,7 +228,9 @@ export async function startRun({cliRoot, argv}) {
 
   if (choice.answer === 'self') {
     recordRunChoice(choice);
-    if (!json && choice.copy !== 'project')
+    // A project with no CLI of its own is answered as released, with no
+    // line; a hint after the command, once a day, says how to match it.
+    if (!json && (choice.copy === 'matched' || choice.copy === 'carried'))
       console.error(whoAnsweredLine(choice, computer));
     process.once('exit', code => {
       if (code === 0) notify();

@@ -300,8 +300,8 @@ const RUNNERS = {
     sites: ['importUserModule'],
   },
   'foundation/release/cache.mjs': {
-    runs: 'npm (under npm-guard.mjs), to install and look up CLI releases in the per-user cache, and each installed release once, to check it starts and reports its version',
-    sites: ['child_process.spawnSync ×3'],
+    runs: 'npm (under npm-guard.mjs), to install and look up CLI releases in the per-user cache; each installed release once, to check it starts and reports its version; and ps (tasklist on Windows), to confirm the process a stale lock records is node or npm before ending it',
+    sites: ['child_process.spawnSync ×5'],
   },
   'foundation/release/npm-guard.mjs': {
     runs: 'npm, in a process group of its own that it ends at the time limit, on Ctrl-C, or when the run that started it goes away',

@@ -27,6 +27,7 @@ import {
 } from '../foundation/release/handoff.mjs';
 import {
   availableLine,
+  noCliHintLine,
   oldGlobalLines,
   upgradeLine,
 } from '../foundation/release/notices.mjs';
@@ -208,6 +209,7 @@ function cliLines() {
       'the registry does not have it',
       'the release cache /home/me/.cache/astryx/releases cannot be written (EACCES)',
     ].map(reason => fallbackLine('0.6.8', reason, '0.7.2')),
+    noCliHintLine('0.7.2', '0.6.8', 'npm install @astryxdesign/cli@0.6.8'),
     ...refusals,
   ]);
 }

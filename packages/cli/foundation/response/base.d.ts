@@ -61,19 +61,22 @@ export interface CLIUnsupportedError {
  * Which copy of the CLI answered a run (spec AST-081 FR5): carried in `meta`
  * on every successful machine-readable result of a release that has it.
  * - `project`: the project's own CLI.
- * - `matched`: the release equal to the project's Core, from the per-user
- *   cache or the copy that started the run.
+ * - `starting`: the copy that started the run, in a project with no CLI of
+ *   its own.
+ * - `matched`: the release equal to the project's Core, when the project's
+ *   own CLI cannot start, from the per-user cache or the copy that started
+ *   the run.
  * - `carried`: outside a project, the copy that started the run, with the Core
  *   it carries.
- * - `fallback`: the matched release could not be obtained, so the project's
- *   own CLI, or else the copy that started the run, answered instead.
+ * - `fallback`: the matched release could not be obtained, so the copy that
+ *   started the run answered instead.
  */
 export interface AnsweredBy {
   /** The answering CLI's version. */
   cli: string;
   /** The Core the run pairs with, or `null` when there is none. */
   core: string | null;
-  copy: 'project' | 'matched' | 'carried' | 'fallback';
+  copy: 'project' | 'starting' | 'matched' | 'carried' | 'fallback';
 }
 
 export interface CLIResponse {

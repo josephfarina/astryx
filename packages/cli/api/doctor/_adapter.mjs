@@ -6,12 +6,15 @@ import {isOutsideProject} from '../../foundation/env/project-scope.mjs';
 import {answeredBy} from '../../foundation/release/run-context.mjs';
 import {knownLatestRelease} from '../../foundation/release/global-state.mjs';
 import {
+  addCliCommand,
   alignCliAndCore,
   globalBehind,
   globalUpgradeCommand,
   projectLag,
 } from '../../foundation/release/notices.mjs';
-import {isGlobalCopy} from '../../foundation/release/choose.mjs';
+import {isGlobalCopy, projectRootOf} from '../../foundation/release/choose.mjs';
+import {readReleaseFacts} from '../../foundation/release/project.mjs';
+import {detectPackageManager} from '../../foundation/env/package-manager.mjs';
 import {astryxCommandsOnSearchPath} from '../../foundation/env/search-path.mjs';
 import {readDeclaredDependencies} from '../../foundation/integrations/autolink.mjs';
 import {
@@ -308,7 +311,16 @@ export function releaseFacts(cwd, {project}) {
       !project && isGlobalCopy(CLI_ROOT)
         ? globalBehind({self: {version: answered.cli, root: CLI_ROOT}})
         : null,
-    projectLag: project ? projectLag({cwd, current: answered.cli}) : null,
+    // The project's version is its own CLI's, or, with none, its Core's.
+    projectLag: project
+      ? projectLag({
+          cwd,
+          current:
+            answered.copy === 'starting' && answered.core
+              ? answered.core
+              : answered.cli,
+        })
+      : null,
     searchPathCommands: astryxCommandsOnSearchPath().map(row => ({
       ...row,
       upgrade: row.cliRoot ? globalUpgradeCommand(row.cliRoot) : null,
@@ -332,4 +344,43 @@ export function outsideProject(/** @type {string} */ cwd) {
  */
 export function alignCommand(cwd, cli, core) {
   return alignCliAndCore({cwd, cli, core});
+}
+
+/**
+ * Whether the project at `cwd` installs its own CLI (spec AST-081 FR2).
+ * @param {string} cwd
+ * @returns {boolean}
+ */
+export function projectHasOwnCli(cwd) {
+  return Boolean(readReleaseFacts(cwd).cli);
+}
+
+/**
+ * The command that adds the CLI at `version` with the project's package
+ * manager.
+ * @param {string} cwd
+ * @param {string} version
+ * @returns {string}
+ */
+export function addCliCommandFor(cwd, version) {
+  return addCliCommand(projectRootOf(readReleaseFacts(cwd)) ?? cwd, version);
+}
+
+/**
+ * The command that adds a package with the folder's package manager, read
+ * from its lockfiles and `packageManager` field.
+ * @param {string} cwd
+ * @returns {(name: string) => string}
+ */
+export function installCommandFor(cwd) {
+  const pm = detectPackageManager(cwd);
+  const verb =
+    pm === 'pnpm'
+      ? 'pnpm add'
+      : pm === 'yarn'
+        ? 'yarn add'
+        : pm === 'bun'
+          ? 'bun add'
+          : 'npm install';
+  return name => `${verb} ${name}`;
 }

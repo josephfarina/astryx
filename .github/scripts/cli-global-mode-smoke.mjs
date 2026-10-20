@@ -13,9 +13,9 @@
 //   - that a fresh clone gets nothing written into it;
 //   - the daily update check and its notice when the registry's latest tag names a newer release (it
 //     installs nothing, and the installed release keeps answering);
-//   - offline, release not cached: the starting copy answers, with one warning line and
-//     meta.answeredBy.copy "fallback", and the failed install is not retried on the next run; a project whose
-//     own CLI cannot start gets the same;
+//   - offline: a project with only Core is answered by the starting copy (copy "starting"); a project whose own
+//     CLI cannot start and whose release is not cached is answered by the starting copy, with one warning line
+//     and meta.answeredBy.copy "fallback", and the failed install is not retried on the next run;
 //   - stopping a run in the middle of a release install (Ctrl-C, and killing the CLI process alone): which
 //     package-manager processes are left, and whether the next run recovers;
 //   - `astryx init --user` / `--remove-agents` (files under the home folder, valid frontmatter, nothing in the project);
@@ -547,6 +547,20 @@ async function main() {
     makeProject(core070, {'@astryxdesign/core': '0.7.0'}, regMain.url),
     makeProject(core063, {'@astryxdesign/core': '0.6.3'}, regMain.url),
   ]);
+  // Projects whose own CLI cannot start (its package, with no astryx
+  // command): only they get the release equal to their Core from the cache.
+  for (const [dir, version] of [
+    [core070, '0.7.0'],
+    [core063, '0.6.3'],
+  ]) {
+    const own = path.join(dir, 'node_modules', '@astryxdesign', 'cli');
+    fs.rmSync(own, {recursive: true, force: true});
+    fs.mkdirSync(own, {recursive: true});
+    fs.writeFileSync(
+      path.join(own, 'package.json'),
+      JSON.stringify({name: '@astryxdesign/cli', version}),
+    );
+  }
   fs.mkdirSync(path.join(fresh068, 'src'), {recursive: true});
   const fdeps = {'@astryxdesign/cli': '0.6.8', '@astryxdesign/core': '0.6.8'};
   fs.writeFileSync(
@@ -590,14 +604,14 @@ async function main() {
     [
       'project with Core 0.7.1 only',
       core071,
-      '0.7.1',
-      "answered by CLI 0.7.1 with Core 0.7.1, the release that matches this project's Core",
+      LABEL,
+      `this project has no Astryx CLI installed; answered by CLI ${LABEL} while its Core is 0.7.1.`,
     ],
     [
       'fresh clone (lockfile 0.6.8, nothing installed)',
       fresh068,
-      '0.6.8',
-      "answered by CLI 0.6.8 with Core 0.6.8, the release that matches this project's Core",
+      LABEL,
+      `this project has no Astryx CLI installed; answered by CLI ${LABEL} while its Core is 0.6.8.`,
     ],
     ['empty folder', empty, LABEL, 'outside a project'],
   ];
@@ -622,7 +636,7 @@ async function main() {
     const {json, clean} = cleanJson(j);
     const ab = json?.meta?.answeredBy;
     const abOk = want === LABEL ? ab && ab.cli === LABEL : true; // older releases predate the field
-    // a fresh clone has no Core installed: the matched release answers as it would there (ERR_CORE_NOT_FOUND), still as clean JSON
+    // a fresh clone has no Core installed: the copy that started the run answers as it would there (ERR_CORE_NOT_FOUND or its own Core), still as clean JSON
     const rcOk =
       j.code === 0 || (dir === fresh068 && json?.code === 'ERR_CORE_NOT_FOUND');
     ok(
@@ -685,7 +699,7 @@ async function main() {
 
   // printed commands, pasted into the shells people use
   for (const [label, dir, want] of [
-    ['project with Core 0.7.1 only', core071, '0.7.1'],
+    ['project with Core 0.7.1 only', core071, LABEL],
     ['empty folder', empty, LABEL],
   ]) {
     const b = await astryx(['build', 'settings page'], {cwd: dir, env: envA});
@@ -714,9 +728,12 @@ async function main() {
       fs.rmSync(t, {recursive: true, force: true});
       const r = await run(exe, argv, {cwd: dir, env: envA, timeoutMs: 300_000});
       const made = fs.existsSync(path.join(dir, target));
+      // A project with only Core is answered, with no line, by the copy the
+      // printed command starts: the CLI pinned to the release that printed it.
       const same =
         r.stderr.includes(`CLI ${want} with Core`) ||
-        r.stderr.includes(`project's CLI ${want}`);
+        r.stderr.includes(`project's CLI ${want}`) ||
+        (dir === core071 && printed.includes(`@astryxdesign/cli@${want}`));
       ok(
         `${label}: printed command runs in ${sname} and reaches ${want}`,
         r.code === 0 && made && same,
@@ -771,8 +788,27 @@ async function main() {
   // offline, cold cache
   {
     const home = newHome('offline');
-    // Core 0.7.0 needs release 0.7.0, which is not cached and cannot be
-    // fetched: the starting copy answers, as before global mode, and says so.
+    // A project with only Core is answered by the copy that started the run,
+    // online or offline, and nothing is installed.
+    const c = await astryx(['docs', '--json'], {
+      cwd: core071,
+      env: homeEnv(home, OFFLINE),
+    });
+    let cj = null;
+    try {
+      cj = JSON.parse(c.stdout);
+    } catch {}
+    ok(
+      'offline, a project with only Core: the starting copy answers (copy starting), nothing installed',
+      c.code === 0 &&
+        cj?.meta?.answeredBy?.copy === 'starting' &&
+        cj?.meta?.answeredBy?.cli === LABEL &&
+        !/installing CLI release/u.test(c.stderr) &&
+        c.secs < 20,
+      `rc=${c.code} answeredBy=${JSON.stringify(cj?.meta?.answeredBy)} ${c.secs}s`,
+    );
+    // Core 0.7.0's own CLI cannot start, so it needs release 0.7.0, which is
+    // not cached and cannot be fetched: the starting copy answers, and says so.
     const t = await astryx(['--version'], {
       cwd: core070,
       env: homeEnv(home, OFFLINE),
@@ -781,7 +817,7 @@ async function main() {
       .split(/\r?\n/u)
       .filter(line => line.includes('could not get Astryx'));
     ok(
-      'offline, release not cached: the starting copy answers, with one warning line',
+      'offline, a project whose own CLI cannot start: the starting copy answers, with one warning line',
       t.code === 0 &&
         lastLine(t.stdout) === LABEL &&
         warnings.length === 1 &&
@@ -800,7 +836,7 @@ async function main() {
       j = JSON.parse(r.stdout);
     } catch {}
     ok(
-      'offline, release not cached: JSON intact, meta.answeredBy.copy is fallback',
+      'offline, a project whose own CLI cannot start: JSON intact, meta.answeredBy.copy is fallback',
       r.code === 0 &&
         j?.meta?.answeredBy?.copy === 'fallback' &&
         j?.meta?.answeredBy?.cli === LABEL &&
@@ -814,40 +850,12 @@ async function main() {
       env: homeEnv(home, OFFLINE),
     });
     ok(
-      'offline, release not cached: the next run does not try the install again',
+      'offline, a project whose own CLI cannot start: the next run does not try the install again',
       again.code === 0 &&
         !/installing CLI release/u.test(again.stderr) &&
         /could not get Astryx 0\.7\.0 /u.test(again.stderr) &&
         again.secs < 20,
       `rc=${again.code} ${again.secs}s stderr=${JSON.stringify(again.stderr.trim().slice(0, 200))}`,
-    );
-    // A project whose own CLI cannot start (no astryx command in its
-    // package): the release matching its Core answers instead; offline, the
-    // starting copy, with the same warning. Nothing on this path fails the run:
-    // ERR_VERSIONS_UNAVAILABLE is left for runs nothing can answer, which this
-    // script cannot set up on every operating system.
-    const broken = path.join(FX, 'broken-own-cli');
-    fs.rmSync(broken, {recursive: true, force: true});
-    fs.cpSync(core070, broken, {recursive: true});
-    const ownCli = path.join(broken, 'node_modules', '@astryxdesign', 'cli');
-    fs.rmSync(ownCli, {recursive: true, force: true});
-    fs.mkdirSync(ownCli, {recursive: true});
-    fs.writeFileSync(
-      path.join(ownCli, 'package.json'),
-      JSON.stringify({name: '@astryxdesign/cli', version: '0.7.0'}),
-    );
-    const n = await astryx(['docs', '--json'], {
-      cwd: broken,
-      env: homeEnv(home, OFFLINE),
-    });
-    let nj = null;
-    try {
-      nj = JSON.parse(n.stdout);
-    } catch {}
-    ok(
-      'a project whose own CLI cannot start: offline, the starting copy answers (copy fallback)',
-      n.code === 0 && nj?.meta?.answeredBy?.copy === 'fallback' && n.secs < 20,
-      `rc=${n.code} answeredBy=${JSON.stringify(nj?.meta?.answeredBy)} ${n.secs}s`,
     );
     const o = await astryx(['--version'], {
       cwd: empty,

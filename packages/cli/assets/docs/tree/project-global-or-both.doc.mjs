@@ -72,7 +72,7 @@ export const docs = {
             [
               'Global only',
               'Docs, components, and search in any folder; every agent knows Astryx',
-              'Nothing pinned for a team; a project without its own CLI installs its version into a cache',
+              'Nothing pinned for a team; a project without its own CLI gets whatever version you started',
               'Agents, prototypes, and quick lookups',
             ],
           ],

@@ -127,7 +127,7 @@ export const docs = {
           type: 'list',
           style: 'unordered',
           items: [
-            "`meta.answeredBy` on every successful `--json` result: `cli` (the version that answered), `core` (the Core it used, or `null`), and `copy`: `project` (the project's own CLI), `matched` (the CLI version equal to the project's Core, for a project that installs only Core), `carried` (outside a project), or `fallback` (that version could not be obtained, so the astryx command you started answered instead).",
+            "`meta.answeredBy` on every successful `--json` result: `cli` (the version that answered), `core` (the Core it used, or `null`), and `copy`: `project` (the project's own CLI), `starting` (the astryx command you started, in a project with no CLI of its own), `matched` (the CLI version equal to the project's Core, when the project's own CLI cannot start), `carried` (outside a project), or `fallback` (that version could not be obtained, so the astryx command you started answered instead).",
             '`meta.available` entries from `astryx discover` with `source: "installed for this computer"`: an integration installed next to your global install that the project could add, with its install command in `install`.',
           ],
         },
@@ -155,7 +155,7 @@ export const docs = {
           type: 'list',
           style: 'unordered',
           items: [
-            "Which version answers: in a project, the project's own CLI (or, with only Core, the CLI version equal to it); outside one, your global version. {@link generic:who-answers}",
+            "Which version answers: in a project, the project's own CLI (with only Core, the astryx command you started); outside one, your global version. {@link generic:who-answers}",
             'Commands that change a project write nothing outside one; `doctor`, `init`, and `theme add` do something else there. {@link namespace:commands}',
             'Integrations installed globally work only outside projects. {@link generic:computer-integrations}',
             'The programmatic API runs in your process with the package you import and never hands off to another version; with `cwd` outside a project, its functions answer as the commands do there. {@link namespace:api}',
@@ -172,7 +172,7 @@ export const docs = {
           style: 'unordered',
           items: [
             '**Global install**: the CLI installed for your computer with `npm i -g` or another package manager.',
-            "**The project's version**: the project's own CLI, or for a project that installs only Core, the CLI version equal to its Core; it answers every command in that project.",
+            "**The project's version**: the project's own CLI; it answers every command in that project. A project with only Core has none, so the astryx command you started answers.",
             '**Cache**: the folder where Astryx keeps versions projects need but do not install.',
           ],
         },

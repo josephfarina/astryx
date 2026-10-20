@@ -30,7 +30,7 @@ import * as path from 'node:path';
 import {MIN_NODE_VERSION, isNodeVersionSupported} from '../../foundation/env/node-version.mjs';
 import {AGENT_DOC_PATHS} from '../../foundation/agent-docs/agent-doc-state.mjs';
 import {CLI_ROOT, findProjectCoreDir, findInstalledPackage} from '../../foundation/fs/paths.mjs';
-import {detectPackageManager, explainPackageManager, formatCliCommand, getCliInvocation, guessCliInvocation} from '../../foundation/env/package-manager.mjs';
+import {explainPackageManager, formatCliCommand, getCliInvocation, guessCliInvocation} from '../../foundation/env/package-manager.mjs';
 import {chooseDeclaredCliCommand, declaredCliCommandsOf} from '../../foundation/env/cli-command.mjs';
 import {
   findConfigPath,
@@ -58,7 +58,7 @@ import {detailView, indexView} from '../../foundation/doc-compiler/lenses.mjs';
 import {semverCompare, isValidSemver, satisfiesRange} from '../../foundation/env/semver.mjs';
 import {checkAppThemes, checkThemes} from './theme-checks.mjs';
 import {availableLine, upgradeLine} from '../../foundation/release/notices.mjs';
-import {alignCommand, computerAgentTextState, computerIntegrationsOutside, computerIntegrationsToAdd, displayHomePath, outsideProject, releaseFacts} from './_adapter.mjs';
+import {alignCommand, addCliCommandFor, computerAgentTextState, installCommandFor, projectHasOwnCli, computerIntegrationsOutside, computerIntegrationsToAdd, displayHomePath, outsideProject, releaseFacts} from './_adapter.mjs';
 
 /**
  * @typedef {'pass'|'warn'|'fail'|'info'} DoctorStatus
@@ -78,6 +78,8 @@ import {alignCommand, computerAgentTextState, computerIntegrationsOutside, compu
  * @property {string} cwd - Directory to diagnose.
  * @property {string} nodeVersion - Running Node version.
  * @property {string|null} coreDir - Resolved core package directory, or null.
+ * @property {boolean} [ownCli] - Whether the project installs its own CLI;
+ *   false means the copy that started the run answered it (spec AST-081 FR2).
  * @property {string|null} configPath - Resolved astryx.config.mjs path, or null.
  * @property {import('../../foundation/integrations/integrations.mjs').LoadedIntegration[]|null} [integrations]
  *   Every integration the project loaded, or null when the project could not be
@@ -265,6 +267,21 @@ export function checkVersionAlignment(ctx) {
     };
   }
 
+  // A project with no CLI of its own is answered by the copy that started
+  // the run (spec AST-081 FR2): say so, and how to add the CLI at Core's
+  // version.
+  if (ctx.ownCli === false) {
+    return {
+      id: 'version-alignment',
+      label: '@astryxdesign/core <-> @astryxdesign/cli alignment',
+      status: coreVersion === cliVersion ? 'info' : 'warn',
+      message:
+        coreVersion === cliVersion
+          ? `This project has no Astryx CLI installed; CLI ${cliVersion}, the one you started, answered and matches its Core.`
+          : `This project has no Astryx CLI installed; CLI ${cliVersion}, the one you started, answered while its Core is ${coreVersion}.`,
+      fix: `${coreVersion === cliVersion ? 'To pin it for the team and CI' : 'To match'}, run: ${addCliCommandFor(ctx.cwd, coreVersion)}.`,
+    };
+  }
   // The project's own CLI answers this project whatever its version
   // (spec AST-081 FR2), so any difference means templates, docs, and agent
   // text come from one release and components from another.
@@ -1592,32 +1609,23 @@ export function checkComputerIntegrations(ctx) {
  * Inside a project, the integrations installed for the computer that the
  * project does not install: available, never used (spec AST-081 FR12).
  * Always info.
- * @param {{cwd: string, installed: Set<string>, candidates: import('../../foundation/integrations/computer-integrations.mjs').ComputerIntegrationCandidate[]}} input
+ * @param {{installed: Set<string>, candidates: import('../../foundation/integrations/computer-integrations.mjs').ComputerIntegrationCandidate[], install: (name: string) => string}} input
+ *   `install`: the command that adds a package with the project's package
+ *   manager (read by the adapter)
  * @returns {DoctorCheck}
  */
-export function checkComputerIntegrationsAvailable({cwd, installed, candidates}) {
+export function checkComputerIntegrationsAvailable({installed, candidates, install}) {
   const available = candidates.filter(c => !installed.has(c.name));
   const base = {id: 'computer-integrations', label: 'Integrations installed for this computer', status: /** @type {const} */ ('info')};
   if (available.length === 0) {
     return {...base, message: 'No integration installed for this computer is missing from this project.'};
   }
-  const add = installCommandFor(cwd);
+  const add = install;
   return {
     ...base,
     message: `Installed for this computer but not in this project, so not used here: ${available.map(c => c.name).join(', ')}.`,
     fix: `To use one in this project, run ${available.map(c => `\`${add(c.name)}\``).join(' or ')}.`,
   };
-}
-
-/**
- * The command that adds a package with the folder's package manager.
- * @param {string} cwd
- * @returns {(name: string) => string}
- */
-function installCommandFor(cwd) {
-  const pm = detectPackageManager(cwd);
-  const verb = pm === 'pnpm' ? 'pnpm add' : pm === 'yarn' ? 'yarn add' : pm === 'bun' ? 'bun add' : 'npm install';
-  return name => `${verb} ${name}`;
 }
 
 /**
@@ -1824,6 +1832,7 @@ export async function runChecks(options = {}) {
     cwd,
     nodeVersion: process.versions.node,
     coreDir,
+    ownCli: projectHasOwnCli(cwd),
     configPath,
     integrations,
     docsCatalog,
@@ -1868,7 +1877,7 @@ export async function runChecks(options = {}) {
   {
     const loadedNames = (project?.loadedIntegrations ?? []).map((/** @type {{name: string}} */ i) => i.name);
     const candidates = await computerIntegrationsToAdd(cwd, loadedNames);
-    checks.push(checkComputerIntegrationsAvailable({cwd, installed: new Set(loadedNames), candidates}));
+    checks.push(checkComputerIntegrationsAvailable({installed: new Set(loadedNames), candidates, install: installCommandFor(cwd)}));
   }
   checks.push(await checkAuthoringDocs(ctx));
   checks.push(await checkCliDocs(ctx));
