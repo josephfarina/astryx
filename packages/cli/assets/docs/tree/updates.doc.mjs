@@ -60,7 +60,7 @@ export const docs = {
         {
           type: 'code',
           lang: 'text',
-          code: 'A new release of Astryx is available: 0.7.1 → 0.7.3\nTo upgrade, run: npm install @astryxdesign/core@0.7.3 @astryxdesign/cli@0.7.3, then npx astryx upgrade --from 0.7.1 --apply',
+          code: 'A new release of Astryx is available: 0.7.1 → 0.7.3\nTo upgrade, run: pnpm add @astryxdesign/core@0.7.3 @astryxdesign/cli@0.7.3, then pnpm exec astryx upgrade --from 0.7.1 --apply',
         },
       ],
     },

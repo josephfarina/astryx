@@ -97,7 +97,7 @@ export const docs = {
         {
           type: 'code',
           lang: 'bash',
-          code: 'npx astryx doctor integration validate',
+          code: 'astryx doctor integration validate',
         },
         {
           type: 'code',

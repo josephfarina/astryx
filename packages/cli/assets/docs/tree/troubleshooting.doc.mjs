@@ -130,8 +130,8 @@ export const docs = {
               "Its doc still names its file. Set `name` to the export, such as `name: 'AcmeCarousel'` in `acme-carousel.doc.mjs`. A family member is listed only when the module its family doc imports exports it ({@link generic:component-family}).",
             ],
             [
-              '`npx astryx component Dialog` opens Core\'s `Dialog`, not yours.',
-              "A name that Core, a legacy docs package, or another package's file already has stays theirs. Run `npx astryx component Dialog --package @acme/astryx-widgets`, or give your component a name of its own.",
+              '`astryx component Dialog` opens Core\'s `Dialog`, not yours.',
+              "A name that Core, a legacy docs package, or another package's file already has stays theirs. Run `astryx component Dialog --package @acme/astryx-widgets`, or give your component a name of its own.",
             ],
             [
               '`Error: Template "dashboard" is ambiguous — narrow it with --type and/or --package.`',

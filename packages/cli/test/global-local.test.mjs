@@ -1727,39 +1727,43 @@ describe.skipIf(!POSIX)(
       ).toBe(false);
     });
 
-    it('G52 the global copy installs its own Core into the cache in the background, never in CI and never blocking a command; offline, the failure waits out the backoff', async () => {
-      const pc = computer();
-      const g = globalCli('npm', '9.0.0', {root: pc.home, coreStep: true});
-      const empty = tempDir('empty');
-      const failed = path.join(
-        pc.astryxCache,
-        'releases',
-        '.failed-9.0.0.json',
-      );
-      // In CI, no download starts.
-      expect(
-        run(g.bin, ['--version'], {cwd: empty, pc, env: {CI: 'true'}}).status,
-      ).toBe(0);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      expect(fs.existsSync(failed)).toBe(false);
-      // Otherwise the detached step tries it; the run itself returns at once.
-      const started = Date.now();
-      const r = run(g.bin, ['--version'], {cwd: empty, pc});
-      expect(r.status).toBe(0);
-      expect(r.stdout).toBe('9.0.0');
-      expect(Date.now() - started).toBeLessThan(15_000);
-      // Offline here: the step records the failure for the backoff.
-      for (let i = 0; i < 100 && !fs.existsSync(failed); i++) {
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
-      expect(fs.existsSync(failed)).toBe(true);
-      // A cached release means nothing more to do.
-      fs.rmSync(failed);
-      seedPackedRelease(pc.astryxCache, '9.0.0');
-      expect(run(g.bin, ['--version'], {cwd: empty, pc}).status).toBe(0);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      expect(fs.existsSync(failed)).toBe(false);
-    }, 60_000);
+    it.skipIf(process.platform === 'win32')(
+      'G52 the global copy installs its own Core into the cache in the background, never in CI or on Windows and never blocking a command; offline, the failure waits out the backoff',
+      async () => {
+        const pc = computer();
+        const g = globalCli('npm', '9.0.0', {root: pc.home, coreStep: true});
+        const empty = tempDir('empty');
+        const failed = path.join(
+          pc.astryxCache,
+          'releases',
+          '.failed-9.0.0.json',
+        );
+        // In CI, no download starts.
+        expect(
+          run(g.bin, ['--version'], {cwd: empty, pc, env: {CI: 'true'}}).status,
+        ).toBe(0);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        expect(fs.existsSync(failed)).toBe(false);
+        // Otherwise the detached step tries it; the run itself returns at once.
+        const started = Date.now();
+        const r = run(g.bin, ['--version'], {cwd: empty, pc});
+        expect(r.status).toBe(0);
+        expect(r.stdout).toBe('9.0.0');
+        expect(Date.now() - started).toBeLessThan(15_000);
+        // Offline here: the step records the failure for the backoff.
+        for (let i = 0; i < 100 && !fs.existsSync(failed); i++) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        expect(fs.existsSync(failed)).toBe(true);
+        // A cached release means nothing more to do.
+        fs.rmSync(failed);
+        seedPackedRelease(pc.astryxCache, '9.0.0');
+        expect(run(g.bin, ['--version'], {cwd: empty, pc}).status).toBe(0);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        expect(fs.existsSync(failed)).toBe(false);
+      },
+      60_000,
+    );
 
     it("G53 pnpm's global virtual store: a project's own CLI kept in the store's links folder is not global; one a pnpm global folder links to is", () => {
       const pc = computer();
@@ -1875,11 +1879,11 @@ describe.skipIf(!POSIX)(
       expect(() => JSON.parse(r.stdout)).not.toThrow();
       expect(r.stderr).toBe('');
       expect(fs.existsSync(marker)).toBe(false);
-      // The step did start, after the command.
+      // The step did start, after the command; on Windows it never starts.
       for (let i = 0; i < 50 && !fs.existsSync(startedMark); i++) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
-      expect(fs.existsSync(startedMark)).toBe(true);
+      expect(fs.existsSync(startedMark)).toBe(process.platform !== 'win32');
     });
 
     it("G56 an open search outside a project gets the release's Core as component does; when it cannot, it says what it skipped, never silently", () => {
@@ -1947,7 +1951,7 @@ describe.skipIf(!POSIX)(
     });
 
     it.skipIf(process.platform === 'win32')(
-      "G58 an interrupt sent to the starting copy alone reaches the project's CLI once; the run stops with its exit status",
+      "G58 an interrupt reaches the project's CLI exactly once: passed on after 5 seconds when only the starting copy got it, never when the whole group did and the CLI stopped in time",
       async () => {
         const pc = computer();
         const g = globalCli('npm', '9.0.5', {root: pc.home});
@@ -1982,12 +1986,22 @@ describe.skipIf(!POSIX)(
           );
           return dir;
         };
-        /** @param {string} dir */
-        const interruptStartingCopy = async dir => {
+        const HANDLES =
+          "process.on('SIGINT', () => { fs.appendFileSync(log, 'SIGINT\\n'); setTimeout(() => process.exit(130), 200); });";
+        /**
+         * Start a run in `dir` and interrupt it: the starting copy alone, as an
+         * agent's kill('SIGINT') does, or its whole process group, as a
+         * terminal's Ctrl-C does.
+         * @param {string} dir
+         * @param {'alone' | 'group'} target
+         */
+        const interrupt = async (dir, target) => {
           const child = spawn(process.execPath, [g.bin, '--version'], {
             cwd: dir,
             env: envOf(pc),
             stdio: 'pipe',
+            // A process group of its own, so the group can be signalled.
+            detached: true,
           });
           const pidFile = path.join(dir, 'child.pid');
           for (let i = 0; i < 100 && !fs.existsSync(pidFile); i++) {
@@ -1995,11 +2009,15 @@ describe.skipIf(!POSIX)(
           }
           expect(fs.existsSync(pidFile)).toBe(true);
           const childPid = Number(fs.readFileSync(pidFile, 'utf8'));
-          // The starting copy alone, as an agent's kill('SIGINT') does.
-          child.kill('SIGINT');
+          const started = Date.now();
+          if (target === 'group') {
+            process.kill(-(/** @type {number} */ (child.pid)), 'SIGINT');
+          } else {
+            child.kill('SIGINT');
+          }
           /** @type {[number | null, NodeJS.Signals | null] | null} */
           const ended = await new Promise(resolve => {
-            const timer = setTimeout(() => resolve(null), 10_000);
+            const timer = setTimeout(() => resolve(null), 15_000);
             child.on('exit', (c, s) => {
               clearTimeout(timer);
               resolve([c, s]);
@@ -2025,34 +2043,44 @@ describe.skipIf(!POSIX)(
             code,
             signal,
             alive,
+            seconds: (Date.now() - started) / 1000,
             interrupts: fs
               .readFileSync(path.join(dir, 'interrupts.log'), 'utf8')
               .split('\n')
               .filter(Boolean).length,
           };
         };
-        // A CLI that handles the interrupt and exits 130.
-        const handles = await interruptStartingCopy(
-          stubProject(
-            "process.on('SIGINT', () => { fs.appendFileSync(log, 'SIGINT\\n'); setTimeout(() => process.exit(130), 200); });",
-          ),
-        );
-        expect(handles).toEqual({
+        // The starting copy alone: passed on once, after the grace; the run
+        // ends with the CLI's exit status.
+        const alone = await interrupt(stubProject(HANDLES), 'alone');
+        expect(alone).toMatchObject({
           code: 130,
           signal: null,
           alive: false,
           interrupts: 1,
         });
+        expect(alone.seconds).toBeGreaterThanOrEqual(5);
+        expect(alone.seconds).toBeLessThan(10);
+        // The whole group: the CLI already has it and stops in time, so it is
+        // not passed on again.
+        const group = await interrupt(stubProject(HANDLES), 'group');
+        expect(group).toMatchObject({
+          code: 130,
+          signal: null,
+          alive: false,
+          interrupts: 1,
+        });
+        expect(group.seconds).toBeLessThan(5);
         // A CLI that leaves the interrupt to Node ends by the signal, and so
-        // does the starting copy.
-        const dies = await interruptStartingCopy(stubProject(''));
+        // does the run.
+        const dies = await interrupt(stubProject(''), 'alone');
         expect(dies).toMatchObject({
           code: null,
           signal: 'SIGINT',
           alive: false,
         });
       },
-      30_000,
+      60_000,
     );
   },
 );

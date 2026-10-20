@@ -200,7 +200,7 @@ function cliLines() {
     upgradeLine(npm, null),
     upgradeLine(npm, '>=22', '20.11.0'),
     upgradeLine(
-      'npm install @astryxdesign/core@0.7.3 @astryxdesign/cli@0.7.3, then npx astryx upgrade --from 0.7.1 --apply',
+      'pnpm add @astryxdesign/core@0.7.3 @astryxdesign/cli@0.7.3, then pnpm exec astryx upgrade --from 0.7.1 --apply',
       null,
     ),
     ...oldGlobalLines({version: '0.6.4', command: npm}),

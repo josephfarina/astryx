@@ -13,7 +13,7 @@ npx @astryxdesign/cli docs migration
 npx @astryxdesign/cli template --list
 ```
 
-Once it's a project dependency (`npm install -D @astryxdesign/cli`), drop the scope and use the shorter `astryx` — e.g. `npx astryx component Button` or `pnpm exec astryx component Button`. Bare `astryx` resolves to an unrelated npm package until the CLI is installed, so prefer the scoped form above for first-run/one-off use.
+Once it's a project dependency (`npm install -D @astryxdesign/cli`), the same scoped commands run the version you installed, or use your package manager's runner with the shorter name, such as `pnpm exec astryx component Button`. Never run the unscoped name through npx before the CLI is installed: `astryx` alone resolves to an unrelated npm package.
 
 ## Install it once for your computer
 
@@ -77,7 +77,7 @@ Results for "button" (20 of 239):
                → astryx template BannerCollapsibleContent
 ```
 
-(The CLI prints the follow-up commands so they reach the release that answered — `npx astryx …` when the project's own CLI answered, `astryx …` outside a project for the copy installed for your computer, or the package pinned to the answering release, such as `npx @astryxdesign/cli@0.7.2 …`, otherwise — or with the command an installed integration sets as its `cliCommand`.)
+(The CLI prints the follow-up commands so they reach the release that answered — the project's runner, such as `pnpm exec astryx …`, when the project's own CLI answered, `astryx …` outside a project for the copy installed for your computer, or the package pinned to the answering release, such as `npx @astryxdesign/cli@0.7.2 …`, otherwise — or with the command an installed integration sets as its `cliCommand`.)
 
 Options:
 

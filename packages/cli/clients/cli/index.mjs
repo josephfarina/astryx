@@ -638,7 +638,7 @@ export async function createProgram() {
       // Same wording as the core/cli postinstall nudges. getCliInvocation()
       // renders the correct form for THIS project — an integration's cliCommand,
       // scoped `npx @astryxdesign/cli` one-off, or `<pm> astryx` when installed —
-      // never the bare `npx astryx` footgun.
+      // never npx with the unscoped name, which fetches an unrelated package.
       // A project with no CLI of its own, answered by another release than its
       // Core's: add the CLI at Core's version first, as the daily hint says,
       // then run that CLI's init (spec AST-081 FR2).

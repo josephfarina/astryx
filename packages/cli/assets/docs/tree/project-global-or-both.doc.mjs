@@ -22,7 +22,7 @@ export const docs = {
     'global or project',
     'both',
     'install in project',
-    'npx astryx',
+    'npx @astryxdesign/cli',
     'dev dependency',
     'recommended setup',
     'should i install globally',
@@ -90,7 +90,7 @@ export const docs = {
         {
           type: 'code',
           lang: 'bash',
-          code: 'npm install @astryxdesign/core @astryxdesign/cli\nnpx astryx init',
+          code: 'npm install @astryxdesign/core @astryxdesign/cli\nastryx init',
         },
         {
           type: 'prose',

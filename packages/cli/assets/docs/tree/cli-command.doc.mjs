@@ -18,7 +18,7 @@ export const docs = {
     'command name',
     'wrapper',
     'printed commands',
-    'npx astryx',
+    'pnpm exec astryx',
   ],
   description:
     'Name the command your users run the CLI with, so every command the CLI prints in their apps starts with it.',
@@ -29,7 +29,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "The CLI ends most answers with the next command to run: a hint, an error fix, a Doctor fix, or a doc example. By default each one starts with a command that reaches the release that answered: what the app's package manager runs, such as `npx astryx` or `pnpm exec astryx`, when the app's own CLI answered, and otherwise the CLI package pinned to that release, such as `npx @astryxdesign/cli@0.7.2`.",
+          text: "The CLI ends most answers with the next command to run: a hint, an error fix, a Doctor fix, or a doc example. By default each one starts with a command that reaches the release that answered: what the app's package manager runs, such as `pnpm exec astryx` or `yarn astryx`, when the app's own CLI answered, and otherwise the CLI package pinned to that release, such as `npx @astryxdesign/cli@0.7.2`.",
         },
         {
           type: 'prose',
@@ -79,7 +79,7 @@ export default {
           items: [
             'The `cliCommand` of the packages the app loads, when they name one command.',
             'The command a host tool names when it runs the CLI for the app. Nothing in a plain project names one.',
-            "A command that reaches the release that answered: what the app's package manager runs when the app's own CLI answered, such as `npx astryx` or `pnpm exec astryx`; `astryx` outside a project when the CLI installed for the computer answered; otherwise the CLI package pinned to that release, such as `npx @astryxdesign/cli@0.7.2` (see {@link generic:who-answers}).",
+            "A command that reaches the release that answered: what the app's package manager runs when the app's own CLI answered, such as `pnpm exec astryx` or `yarn astryx`; `astryx` outside a project when the CLI installed for the computer answered; otherwise the CLI package pinned to that release, such as `npx @astryxdesign/cli@0.7.2` (see {@link generic:who-answers}).",
           ],
         },
         {
@@ -101,7 +101,7 @@ export default {
           lang: 'text',
           code: `status:  [warn]
 label:   CLI command
-message: Loaded integrations declare different CLI commands: @acme/astryx-widgets (\`acme astryx\`), @other/kit (\`other astryx\`). Neither is used, so printed commands start with \`npx astryx\`.`,
+message: Loaded integrations declare different CLI commands: @acme/astryx-widgets (\`acme astryx\`), @other/kit (\`other astryx\`). Neither is used, so printed commands start with \`pnpm exec astryx\`.`,
         },
         {
           type: 'prose',

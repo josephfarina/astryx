@@ -101,7 +101,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "Commands the CLI prints for you to run start with a name that reaches the same version: the project's runner (`npx astryx`) in a project, `astryx` outside a project when your global install answered, and otherwise the CLI pinned to the version, such as `npx @astryxdesign/cli@0.6.8`. An integration can name its own command: {@link generic:cli-command}.",
+          text: "Commands the CLI prints for you to run start with a name that reaches the same version: the project's runner (such as `pnpm exec astryx`) in a project, `astryx` outside a project when your global install answered, and otherwise the CLI pinned to the version, such as `npx @astryxdesign/cli@0.6.8`. An integration can name its own command: {@link generic:cli-command}.",
         },
       ],
     },

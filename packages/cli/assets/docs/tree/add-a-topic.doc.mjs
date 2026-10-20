@@ -79,7 +79,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: 'Start every CLI command in a doc with the word astryx alone, with no runner such as npx or pnpm exec in front. The CLI prefixes each one when it prints the doc, with the command the reader runs: `npx astryx` or `pnpm exec astryx` from their package manager, or the `cliCommand` an integration sets. See {@link generic:cli-command}.',
+          text: 'Start every CLI command in a doc with the word astryx alone, with no runner such as npx or pnpm exec in front. The CLI prefixes each one when it prints the doc, with the command the reader runs: `pnpm exec astryx` or `yarn astryx` from their package manager, or the `cliCommand` an integration sets. See {@link generic:cli-command}.',
         },
         {
           type: 'code',

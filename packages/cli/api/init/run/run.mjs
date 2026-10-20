@@ -40,7 +40,7 @@ const VALID_AGENTS = ['claude', 'cursor', 'codex', 'hermes', 'muse', 'all'];
  * installed built themes and imports their production and font stylesheets. The
  * app imports that module once and passes its default to <Theme>.
  *
- * @param {string} invocation install-aware CLI invocation stem (e.g. `npx astryx`, `pnpm exec astryx`, or `npx @astryxdesign/cli` for one-off runs)
+ * @param {string} invocation install-aware CLI invocation stem (e.g. `pnpm exec astryx`, `yarn astryx`, or `npx @astryxdesign/cli` for one-off runs)
  * @returns {string[]} ordered list of human-facing lines
  */
 export function getNextSteps(invocation) {

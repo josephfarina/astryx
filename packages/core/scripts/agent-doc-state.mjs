@@ -148,8 +148,8 @@ function findRepositoryRoot(start) {
  * The invocation the setup nudge falls back to when the CLI's picker
  * (`getCliInvocation`) cannot be loaded. Scoped package form
  * (`@astryxdesign/cli`) — always resolves to us, even before the CLI is
- * installed. Bare `npx astryx` would fetch an unrelated look-alike package
- * (see PR #4151).
+ * installed. npx with the unscoped name would fetch an unrelated look-alike
+ * package (see PR #4151).
  */
 export const SETUP_INVOCATION = 'npx @astryxdesign/cli';
 

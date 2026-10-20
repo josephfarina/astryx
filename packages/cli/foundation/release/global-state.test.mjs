@@ -167,7 +167,7 @@ describe('maybeFetchCore', () => {
     ).toBe(false);
   });
 
-  it('on Windows, starts only when the run writes to a terminal, so no caller waits on inherited pipes', () => {
+  it('never starts on Windows, where the caller would wait on inherited pipes', () => {
     const start = () => {};
     const r = release();
     const cacheDir = tempDir('cache');
@@ -178,11 +178,9 @@ describe('maybeFetchCore', () => {
       start,
       platform: /** @type {const} */ ('win32'),
     };
-    expect(maybeFetchCore({...base, interactive: false})).toBe(false);
-    expect(maybeFetchCore({...base, interactive: true})).toBe(true);
-    expect(
-      maybeFetchCore({...base, platform: 'linux', interactive: false}),
-    ).toBe(true);
+    expect(maybeFetchCore(base)).toBe(false);
+    expect(maybeFetchCore({...base, platform: 'linux'})).toBe(true);
+    expect(maybeFetchCore({...base, platform: 'darwin'})).toBe(true);
   });
 
   it('waits out a recent failure and an install under way', () => {

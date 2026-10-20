@@ -14,7 +14,7 @@
 // unsupported runtimes this guard protects against.
 //
 // Sibling package modules (e.g. `cli/`, `lib/`) are resolved by this bin's REAL
-// path. When the CLI is installed as a package, `npx astryx` runs this file
+// path. When the CLI is installed as a package, the package manager runs this file
 // through the `node_modules/.bin/astryx` symlink, and some Node versions resolve
 // relative specifiers from the symlink's directory rather than the real package
 // — breaking bare `../…` imports with a cryptic ERR_MODULE_NOT_FOUND.
