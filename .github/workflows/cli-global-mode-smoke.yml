@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-15-intel, windows-latest, ubuntu-latest]
+        os: [macos-15-intel, macos-14]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     permissions:
@@ -54,6 +54,7 @@ jobs:
           sparse-checkout: |
             .github/scripts/cli-global-mode-smoke.mjs
             .github/scripts/skill-links-smoke.mjs
+            .github/scripts/cli-global-mode-smoke-debug.mjs
             .nvmrc
           sparse-checkout-cone-mode: false
       - uses: actions/setup-node@v7
@@ -69,6 +70,10 @@ jobs:
       - name: Skill links and prefix smoke
         if: always()
         run: node .github/scripts/skill-links-smoke.mjs --packs packs --out links-${{ matrix.os }}.json
+      # fork-only: the update section instrumented (config folder, state.json, stderr) for the macOS notice failure
+      - name: Update-notice debug
+        if: always()
+        run: node .github/scripts/cli-global-mode-smoke-debug.mjs --packs packs --out debug-${{ matrix.os }}.json
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -76,3 +81,4 @@ jobs:
           path: |
             results-${{ matrix.os }}.json
             links-${{ matrix.os }}.json
+            debug-${{ matrix.os }}.json
