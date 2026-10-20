@@ -54,10 +54,6 @@ export const docs = {
         },
         {
           type: 'prose',
-          text: 'Want the astryx command in every folder too? Installing the CLI in the project, once for your computer, or both is compared in {@link generic:project-global-or-both}.',
-        },
-        {
-          type: 'prose',
           text: "Then run `astryx init` to install the AI agent cheat sheet (AGENTS.md/CLAUDE.md). It's non-interactive; no prompts; so it's safe for AI agents, CI, and scripts. Add `--all` for pointers to the theme and page-building workflows.",
         },
         {
@@ -65,6 +61,26 @@ export const docs = {
           lang: 'bash',
           label: 'Terminal',
           code: `astryx init`,
+        },
+      ],
+    },
+    {
+      id: 'install-once',
+      title: 'Install once, use everywhere',
+      content: [
+        {
+          type: 'prose',
+          text: "Install the CLI once for your computer too, and the astryx command works in any folder, for you and for any coding agent, even before a project exists. Inside a project, the project's own version still answers, so a global install never changes what your team and CI get. Keep it in the project as well; that is the recommended setup.",
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          label: 'Terminal',
+          code: `npm i -g @astryxdesign/cli`,
+        },
+        {
+          type: 'prose',
+          text: 'Project, global, or both: {@link generic:project-global-or-both}. Everything else about global mode: {@link namespace:global}.',
         },
       ],
     },
@@ -235,16 +251,6 @@ astryx component Button   # props, usage, theming for Button
 astryx docs               # list all doc topics
 astryx template --list    # available page templates
 astryx docs tokens        # spacing, color, radius reference`,
-        },
-      ],
-    },
-    {
-      id: 'global-mode',
-      title: 'In global mode',
-      content: [
-        {
-          type: 'prose',
-          text: "In global mode: also install the CLI once for your computer (`npm i -g @astryxdesign/cli`) to use the astryx command in any folder. Keep it installed in this project too, as above: that pins its version for your team and CI, and in this project the project's version answers whichever astryx command you type. Project, global, or both: {@link generic:project-global-or-both}. How it works: {@link namespace:global}.",
         },
       ],
     },

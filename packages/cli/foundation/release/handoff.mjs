@@ -25,7 +25,7 @@
  */
 
 import {spawn} from 'node:child_process';
-import {writeSync} from 'node:fs';
+import {readFileSync, writeSync} from 'node:fs';
 import {
   chooseRelease,
   isComputerLevel,
@@ -278,6 +278,41 @@ export async function startRun({cliRoot, argv}) {
 }
 
 /**
+ * How long a hand-off waits, after an interrupt the terminal sent to the whole
+ * process group, before passing it on to a CLI that is still running: the
+ * interrupt then reached only this process.
+ */
+export const INTERRUPT_GRACE_MS = 1500;
+
+/**
+ * Whether this process is in the foreground process group of its controlling
+ * terminal, where a terminal's Ctrl-C reaches every process in the group, the
+ * handed-off CLI included. False when it has no terminal or runs in the
+ * background (an agent's or a script's run, where an interrupt reaches this
+ * process alone); null when the system does not say (no /proc).
+ * @param {{procRoot?: string}} [options]
+ * @returns {boolean | null}
+ */
+export function inTerminalForeground({procRoot = '/proc'} = {}) {
+  let stat;
+  try {
+    stat = readFileSync(`${procRoot}/self/stat`, 'utf8');
+  } catch {
+    return null;
+  }
+  // After the command name: state, ppid, pgrp, session, tty_nr, tpgid.
+  const fields = stat
+    .slice(stat.lastIndexOf(')') + 2)
+    .trim()
+    .split(/\s+/u);
+  const pgrp = Number(fields[2]);
+  const ttyNr = Number(fields[4]);
+  const tpgid = Number(fields[5]);
+  if (!Number.isInteger(pgrp) || !Number.isInteger(tpgid)) return null;
+  return ttyNr !== 0 && tpgid === pgrp;
+}
+
+/**
  * Run `bin` as this run and end with its exit status.
  * @param {string} bin
  * @param {string[]} argv
@@ -292,9 +327,6 @@ function handOff(bin, argv, choice, json, notify = () => {}) {
       stdio: 'inherit',
       windowsHide: false,
     });
-    // The terminal sends Ctrl-C to the whole process group, so the child
-    // already has it; this process only has to outlive it.
-    const ignore = () => {};
     /** @param {NodeJS.Signals} signal */
     const forward = signal => {
       try {
@@ -303,7 +335,25 @@ function handOff(bin, argv, choice, json, notify = () => {}) {
         // The child is already gone.
       }
     };
-    process.on('SIGINT', ignore);
+    const running = () => child.exitCode === null && child.signalCode === null;
+    // An interrupt sent to this process alone (an agent's `kill('SIGINT')`, or
+    // `kill -INT` with its id) is passed on, so the run stops. A terminal's
+    // Ctrl-C goes to the whole process group, so the child already has it:
+    // passing it on at once would interrupt it twice, so this process waits,
+    // and passes it on only if the child is still running after the grace. On
+    // Windows, Ctrl-C reaches every process in the console and a forwarded
+    // SIGINT would end the child abruptly, so this process only outlives it.
+    const onInterrupt = () => {
+      if (process.platform === 'win32' || !running()) return;
+      if (inTerminalForeground() === false) {
+        forward('SIGINT');
+        return;
+      }
+      setTimeout(() => {
+        if (running()) forward('SIGINT');
+      }, INTERRUPT_GRACE_MS).unref();
+    };
+    process.on('SIGINT', onInterrupt);
     process.on('SIGTERM', forward);
     process.on('SIGHUP', forward);
     child.on('error', error => {
@@ -315,7 +365,7 @@ function handOff(bin, argv, choice, json, notify = () => {}) {
       );
     });
     child.on('exit', (code, signal) => {
-      process.off('SIGINT', ignore);
+      process.off('SIGINT', onInterrupt);
       process.off('SIGTERM', forward);
       process.off('SIGHUP', forward);
       if (signal) {

@@ -16,7 +16,7 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {spawnSync} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {
   globalCli,
   packedCli,
@@ -72,35 +72,44 @@ function computer(options = {}) {
 }
 
 /**
+ * The environment a run gets on a private computer.
+ * @param {ReturnType<typeof computer>} pc
+ * @param {Record<string, string | undefined>} [env]
+ */
+function envOf(pc, env = {}) {
+  const base = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([k]) => !/^(?:npm_|XDG_|ASTRYX|CI$|NO_UPDATE_NOTIFIER$)/iu.test(k),
+    ),
+  );
+  return {
+    ...base,
+    HOME: pc.home,
+    USERPROFILE: pc.home,
+    XDG_CACHE_HOME: pc.cache,
+    XDG_CONFIG_HOME: path.join(pc.home, '.config'),
+    PATH: pc.path.join(path.delimiter),
+    npm_config_registry: OFFLINE,
+    npm_config_update_notifier: 'false',
+    // An unreachable registry fails at once instead of after npm's backoff.
+    npm_config_fetch_retry_mintimeout: '50',
+    npm_config_fetch_retry_maxtimeout: '100',
+    NO_COLOR: '1',
+    ...env,
+  };
+}
+
+/**
  * Run an `astryx` entry file with node, on a private computer.
  * @param {string} bin
  * @param {string[]} args
  * @param {{cwd: string, pc: ReturnType<typeof computer>, env?: Record<string, string | undefined>}} options
  */
 function run(bin, args, {cwd, pc, env = {}}) {
-  const base = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([k]) => !/^(?:npm_|XDG_|ASTRYX|CI$|NO_UPDATE_NOTIFIER$)/iu.test(k),
-    ),
-  );
   const result = spawnSync(process.execPath, [bin, ...args], {
     cwd,
     encoding: 'utf8',
-    env: {
-      ...base,
-      HOME: pc.home,
-      USERPROFILE: pc.home,
-      XDG_CACHE_HOME: pc.cache,
-      XDG_CONFIG_HOME: path.join(pc.home, '.config'),
-      PATH: pc.path.join(path.delimiter),
-      npm_config_registry: OFFLINE,
-      npm_config_update_notifier: 'false',
-      // An unreachable registry fails at once instead of after npm's backoff.
-      npm_config_fetch_retry_mintimeout: '50',
-      npm_config_fetch_retry_maxtimeout: '100',
-      NO_COLOR: '1',
-      ...env,
-    },
+    env: envOf(pc, env),
     timeout: 60_000,
   });
   return {
@@ -1936,6 +1945,115 @@ describe.skipIf(!POSIX)(
         );
       }
     });
+
+    it.skipIf(process.platform === 'win32')(
+      "G58 an interrupt sent to the starting copy alone reaches the project's CLI once; the run stops with its exit status",
+      async () => {
+        const pc = computer();
+        const g = globalCli('npm', '9.0.5', {root: pc.home});
+        /**
+         * A project whose own CLI records each interrupt it gets, then stops
+         * as `onInterrupt` says.
+         * @param {string} onInterrupt
+         */
+        const stubProject = onInterrupt => {
+          const dir = project(tempDir('project'), {
+            '@astryxdesign/cli': '9.0.0',
+          });
+          const cliDir = path.join(dir, 'node_modules', '@astryxdesign', 'cli');
+          writeJson(path.join(cliDir, 'package.json'), {
+            name: '@astryxdesign/cli',
+            version: '9.0.0',
+            type: 'module',
+            bin: {astryx: 'clients/cli/bin/astryx.mjs'},
+          });
+          const bin = path.join(cliDir, 'clients', 'cli', 'bin', 'astryx.mjs');
+          fs.mkdirSync(path.dirname(bin), {recursive: true});
+          fs.writeFileSync(
+            bin,
+            [
+              "import * as fs from 'node:fs';",
+              "const log = process.cwd() + '/interrupts.log';",
+              "fs.writeFileSync(log, '');",
+              onInterrupt,
+              "fs.writeFileSync(process.cwd() + '/child.pid', String(process.pid));",
+              'setInterval(() => {}, 1000);',
+            ].join('\n'),
+          );
+          return dir;
+        };
+        /** @param {string} dir */
+        const interruptStartingCopy = async dir => {
+          const child = spawn(process.execPath, [g.bin, '--version'], {
+            cwd: dir,
+            env: envOf(pc),
+            stdio: 'pipe',
+          });
+          const pidFile = path.join(dir, 'child.pid');
+          for (let i = 0; i < 100 && !fs.existsSync(pidFile); i++) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+          expect(fs.existsSync(pidFile)).toBe(true);
+          const childPid = Number(fs.readFileSync(pidFile, 'utf8'));
+          // The starting copy alone, as an agent's kill('SIGINT') does.
+          child.kill('SIGINT');
+          /** @type {[number | null, NodeJS.Signals | null] | null} */
+          const ended = await new Promise(resolve => {
+            const timer = setTimeout(() => resolve(null), 10_000);
+            child.on('exit', (c, s) => {
+              clearTimeout(timer);
+              resolve([c, s]);
+            });
+          });
+          if (!ended) {
+            // The run did not stop: end both, then fail below.
+            child.kill('SIGKILL');
+            try {
+              process.kill(childPid, 'SIGKILL');
+            } catch {
+              // Already gone.
+            }
+          }
+          const [code, signal] = ended ?? [null, null];
+          let alive = true;
+          try {
+            process.kill(childPid, 0);
+          } catch {
+            alive = false;
+          }
+          return {
+            code,
+            signal,
+            alive,
+            interrupts: fs
+              .readFileSync(path.join(dir, 'interrupts.log'), 'utf8')
+              .split('\n')
+              .filter(Boolean).length,
+          };
+        };
+        // A CLI that handles the interrupt and exits 130.
+        const handles = await interruptStartingCopy(
+          stubProject(
+            "process.on('SIGINT', () => { fs.appendFileSync(log, 'SIGINT\\n'); setTimeout(() => process.exit(130), 200); });",
+          ),
+        );
+        expect(handles).toEqual({
+          code: 130,
+          signal: null,
+          alive: false,
+          interrupts: 1,
+        });
+        // A CLI that leaves the interrupt to Node ends by the signal, and so
+        // does the starting copy.
+        const dies = await interruptStartingCopy(stubProject(''));
+        expect(dies).toMatchObject({
+          code: null,
+          signal: 'SIGINT',
+          alive: false,
+        });
+      },
+      30_000,
+    );
   },
 );
 
@@ -1944,6 +2062,6 @@ it('names every row of the table exactly once', () => {
   const rows = [
     ...text.matchAll(/^\s+it(?:\.skipIf\([^)]*\)\()?\(?\s*['"](G\d+) /gmu),
   ].map(m => m[1]);
-  expect(rows).toEqual(Array.from({length: 57}, (_, i) => `G${i + 1}`));
+  expect(rows).toEqual(Array.from({length: 58}, (_, i) => `G${i + 1}`));
   expect(os.EOL).toBeTypeOf('string');
 });

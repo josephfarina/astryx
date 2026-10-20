@@ -1,7 +1,5 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import {describe, expect, it} from 'vitest';
 import {
   docRedirects,
@@ -133,18 +131,8 @@ describe('route resolution', () => {
     );
   });
 
-  it('shows global mode as one top-level page, with its older slugs redirecting to it', () => {
+  it('shows global mode as one page under Guide, with its older slugs redirecting to it', () => {
     expect(docTopics.find(d => d.topic === 'global')?.category).toBe('guide');
-    // The sidebar lists it as a top-level item, beside Getting Started, and
-    // leaves it out of the Guide section.
-    const shell = fs.readFileSync(
-      path.join(__dirname, '..', 'components', 'DocsShell.tsx'),
-      'utf8',
-    );
-    expect(shell).toMatch(
-      /const TOP_LEVEL_TOPICS = \['getting-started', 'global'\];/u,
-    );
-    expect(shell).toMatch(/label="Global Mode"\s+href="\/docs\/global"/u);
     expect(pageBySlug.has('global')).toBe(true);
     expect(pageBySlug.has('cli-global')).toBe(false);
     expect(docRedirects['cli-global']).toBe('/docs/global');
@@ -154,6 +142,21 @@ describe('route resolution', () => {
       const slug = route.replaceAll('/', '-');
       expect(docRedirects[slug], slug).toMatch(/^\/docs\/global#/);
     }
+  });
+
+  it('introduces global mode in Getting Started and links its page', () => {
+    const start = pageBySlug.get('getting-started')!;
+    const section = start.sections.find(
+      s => s.title === 'Install once, use everywhere',
+    );
+    expect(section).toBeDefined();
+    const text = JSON.stringify(section);
+    expect(text).toContain('npm i -g @astryxdesign/cli');
+    // Its link to the global mode page renders as a command that opens it.
+    expect(text).toContain('`npx @astryxdesign/cli docs global`');
+    expect(linkifyCode('npx @astryxdesign/cli docs global')).toBe(
+      '/docs/global',
+    );
   });
 
   it('shows commands that reach the CLI: npx @astryxdesign/cli, and plain astryx on the global mode page', () => {

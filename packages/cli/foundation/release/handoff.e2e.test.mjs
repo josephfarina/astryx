@@ -12,6 +12,7 @@ import {spawnSync} from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {inTerminalForeground} from './handoff.mjs';
 import {
   CLI_VERSION,
   cleanupFixtures,
@@ -274,5 +275,40 @@ describe('update notices through the real bin (FR10)', () => {
     expect(first.stderr.trim().split('\n').slice(-2)).toEqual(notice);
     const second = run(root, ['--version'], {cache, home});
     expect(second.stderr).not.toContain('A new release');
+  });
+});
+
+describe('inTerminalForeground: whether a terminal Ctrl-C reached the whole group', () => {
+  /** A process table whose own stat line is `stat`. @param {string} stat */
+  const procWith = stat => {
+    const root = tempDir('proc');
+    fs.mkdirSync(path.join(root, 'self'));
+    fs.writeFileSync(path.join(root, 'self', 'stat'), stat);
+    return root;
+  };
+  // pid (comm) state ppid pgrp session tty_nr tpgid ...
+  it('is true in the foreground group of a terminal, even with spaces and parentheses in the name', () => {
+    expect(
+      inTerminalForeground({
+        procRoot: procWith(
+          '4242 (node (astryx) x) S 1 4242 4000 34817 4242 4194304 0',
+        ),
+      }),
+    ).toBe(true);
+  });
+  it('is false in the background, and with no terminal', () => {
+    expect(
+      inTerminalForeground({
+        procRoot: procWith('4242 (node) S 1 4242 4000 34817 5000 4194304 0'),
+      }),
+    ).toBe(false);
+    expect(
+      inTerminalForeground({
+        procRoot: procWith('4242 (node) S 1 4242 4000 0 -1 4194304 0'),
+      }),
+    ).toBe(false);
+  });
+  it('is null where the system does not say', () => {
+    expect(inTerminalForeground({procRoot: tempDir('no-proc')})).toBeNull();
   });
 });

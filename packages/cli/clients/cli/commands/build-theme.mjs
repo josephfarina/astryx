@@ -225,10 +225,13 @@ async function runThemeBuildWatch(entries, options) {
   emit(text(watchingLine));
 
   await new Promise((/** @type {(value?: void) => void} */ resolve) => {
+    let stopping = false;
     /** @param {NodeJS.Signals} signal */
     const stop = async signal => {
-      process.removeListener('SIGINT', stop);
-      process.removeListener('SIGTERM', stop);
+      // A second interrupt while stopping (a terminal's Ctrl-C and the same
+      // signal passed on by the copy that started the run) changes nothing.
+      if (stopping) return;
+      stopping = true;
       stopped = true;
       queued.clear();
       for (const d of debounces.values()) clearTimeout(d);
@@ -238,10 +241,12 @@ async function runThemeBuildWatch(entries, options) {
       rebuildChild?.kill(signal);
       await rebuildDone;
       emit(text('\nStopped watching.'));
+      process.removeListener('SIGINT', stop);
+      process.removeListener('SIGTERM', stop);
       resolve();
     };
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
   });
 }
 
