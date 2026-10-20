@@ -24,7 +24,6 @@
  * @position Backs `astryx integration check`.
  */
 
-import {INVALID_CLI_COMMAND} from '../../../foundation/integrations/validate-contributions.mjs';
 import {
   integrationComponentConflicts,
   integrationDocConflicts,
@@ -124,9 +123,6 @@ function asIssue(finding, code) {
   };
 }
 
-/** An issue code `--strict` reports without failing on (see strictIssues). */
-const ADVISORY_ONLY = INVALID_CLI_COMMAND;
-
 /**
  * Every warning in one check's result, and every piece of work it skipped,
  * as issues: what `--strict` reports as errors. The counts come from the
@@ -145,10 +141,6 @@ export function strictIssues(check, response, context = {}) {
     );
   const warnings = [];
   for (const issue of data.issues) {
-    // A malformed `cliCommand` is reported, but never fails `--strict`: a new
-    // failure code joins only in a minor release (architecture:cli-surface
-    // INV35), and the next minor names it.
-    if (issue.code === ADVISORY_ONLY) continue;
     if (issue.severity === 'warning') {
       warnings.push(asIssue(issue, issue.code));
     }

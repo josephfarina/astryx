@@ -469,7 +469,9 @@ describe('only `init --user` writes the computer-level text (FR7)', () => {
         if (entry.isDirectory()) walk(file);
         else if (
           /\.m?[jt]s$/.test(entry.name) &&
-          !/\.test\.m?[jt]s$/.test(entry.name)
+          !/\.test\.m?[jt]s$/.test(entry.name) &&
+          // Generated declarations (sync:api-types) import nothing.
+          !/\.d\.m?ts$/.test(entry.name)
         ) {
           const text = fs.readFileSync(file, 'utf8');
           if (

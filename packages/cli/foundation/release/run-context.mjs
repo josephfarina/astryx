@@ -95,7 +95,7 @@ export function cliVersion() {
  * that carries none installs its release into the cache first.
  *
  * @param {{fetch?: boolean, cacheDir?: string}} [options]
- * @returns {{dir: string | null, unavailable: string | null}}
+ * @returns {{dir: string | null, unavailable: string | null, version?: string, reason?: string}}
  */
 export function carriedCore(options = {}) {
   const {fetch = false, cacheDir = userCacheDir()} = options;
@@ -118,6 +118,8 @@ export function carriedCore(options = {}) {
     : {
         dir: null,
         unavailable: `Core ${version} could not be installed: ${release.reason}`,
+        version,
+        reason: release.reason,
       };
 }
 

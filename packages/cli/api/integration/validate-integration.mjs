@@ -55,6 +55,7 @@ import {
 // The on-disk contribution validators live in foundation: Project and
 // integration-warnings need them too, and foundation must not depend on api.
 import {
+  INVALID_CLI_COMMAND,
   validateLoadedIntegration,
   issueError as error,
   issueWarning as warning,
@@ -76,6 +77,8 @@ export {validateLoadedIntegration};
  * @property {string} [manifestFile] Absolute path to the loaded manifest.
  * @property {'no_package_json'} [reason] Why nothing was validated (internal).
  * @property {Issue[]} issues
+ * @property {Array<{code: string, message: string}>} [notes] Information that
+ *   fails nothing, such as `invalid_cli_command` (a malformed `cliCommand`).
  * @property {import('../../foundation/integrations/integrations.mjs').LoadedIntegration} [integration]
  */
 
@@ -287,10 +290,11 @@ async function validateAtPackageDir(
   /** @type {string | undefined} */
   let cliCommandError;
   try {
-    ({manifest, unknownKeys, agentDocsError, cliCommandError} = await loadManifest(
-      manifestFile,
-      `Integration manifest (${path.basename(manifestFile)})`,
-    ));
+    ({manifest, unknownKeys, agentDocsError, cliCommandError} =
+      await loadManifest(
+        manifestFile,
+        `Integration manifest (${path.basename(manifestFile)})`,
+      ));
   } catch (err) {
     issues.push(error('invalid_manifest', /** @type {any} */ (err).message));
     return result;
@@ -334,7 +338,17 @@ async function validateAtPackageDir(
 
   // Roots + contribution checks are shared with validateLoadedIntegration so
   // the everyday-command nudge runs the exact same validators.
-  issues.push(...(await validateLoadedIntegration(loaded)));
+  // A malformed `cliCommand` is an info note beside the issues, not an issue:
+  // `integration check --strict` fails on any warning, and a new failure code
+  // joins only in a minor release (architecture:cli-surface INV35). Doctor's
+  // project check still warns about it.
+  for (const issue of await validateLoadedIntegration(loaded)) {
+    if (issue.code === INVALID_CLI_COMMAND) {
+      (result.notes ??= []).push({code: issue.code, message: issue.message});
+    } else {
+      issues.push(issue);
+    }
+  }
   if (loaded.themes && !rootProblem(loaded.themes))
     issues.push(...unreadThemeFolderIssues(packageDir, loaded));
   if (scanUnreachable) {
@@ -473,6 +487,7 @@ export async function validateIntegration(pkg, options = {}) {
   const docTypes = integration
     ? await integrationDocTypes(integration, cwd)
     : undefined;
+  const notes = result.found ? (result.notes ?? []) : [];
   return {
     type: 'integration.validate',
     data: {
@@ -481,9 +496,18 @@ export async function validateIntegration(pkg, options = {}) {
       validated: result.found,
       name: result.found ? (result.name ?? null) : null,
       version: result.found ? (result.version ?? null) : null,
-      issues: result.reason === 'no_package_json'
-        ? [{code: 'no_package', severity: 'error', message: 'No package.json found. Run this command inside a package directory.'}]
-        : result.issues,
+      issues:
+        result.reason === 'no_package_json'
+          ? [
+              {
+                code: 'no_package',
+                severity: 'error',
+                message:
+                  'No package.json found. Run this command inside a package directory.',
+              },
+            ]
+          : result.issues,
+      ...(notes.length > 0 ? {notes} : {}),
       ...(docTypes ? {docTypes} : {}),
     },
   };

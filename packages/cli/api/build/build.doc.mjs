@@ -78,7 +78,7 @@ export const doc = {
     },
     {
       code: 'ERR_VERSIONS_UNAVAILABLE',
-      when: 'a query is given outside a project and the Core of the release that answers is not beside it or cached, and cannot be installed into the per-user cache (offline, a registry without it, or an unwritable cache)',
+      when: 'a query is given outside a project, or in a project with nothing installed, and the Core of the release that answers is not beside it or cached, and cannot be installed into the per-user cache (offline, a registry without it, or an unwritable cache)',
     },
   ],
   examples: [

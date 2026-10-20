@@ -1,5 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {describe, expect, it} from 'vitest';
 import {
   docRedirects,
@@ -131,8 +133,18 @@ describe('route resolution', () => {
     );
   });
 
-  it('shows global mode as one page under Guide, with its older slugs redirecting to it', () => {
+  it('shows global mode as one top-level page, with its older slugs redirecting to it', () => {
     expect(docTopics.find(d => d.topic === 'global')?.category).toBe('guide');
+    // The sidebar lists it as a top-level item, beside Getting Started, and
+    // leaves it out of the Guide section.
+    const shell = fs.readFileSync(
+      path.join(__dirname, '..', 'components', 'DocsShell.tsx'),
+      'utf8',
+    );
+    expect(shell).toMatch(
+      /const TOP_LEVEL_TOPICS = \['getting-started', 'global'\];/u,
+    );
+    expect(shell).toMatch(/label="Global Mode"\s+href="\/docs\/global"/u);
     expect(pageBySlug.has('global')).toBe(true);
     expect(pageBySlug.has('cli-global')).toBe(false);
     expect(docRedirects['cli-global']).toBe('/docs/global');

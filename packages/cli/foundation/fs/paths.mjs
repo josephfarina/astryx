@@ -39,6 +39,24 @@ export function findCoreDir(startDir = process.cwd()) {
 }
 
 /**
+ * Why a command that reads Core cannot run, when the answering release's own
+ * Core is needed and cannot be installed: outside a project, or in a project
+ * with nothing installed (spec AST-081 FR3).
+ * @param {{unavailable: string | null, version?: string, reason?: string}} found
+ * @param {boolean} inProject
+ * @returns {string}
+ */
+export function unavailableCoreMessage(found, inProject) {
+  const unwritable = /cannot be written/.test(found.unavailable ?? '');
+  if (inProject) {
+    const core = found.version ? `Core ${found.version}` : 'its Core';
+    const why = found.reason ? ` (${found.reason})` : '';
+    return `This project has no Core installed, and ${core} could not be downloaded${why}. Install the project's dependencies${unwritable ? ', or make that folder writable' : ''}, then run again.`;
+  }
+  return `${found.unavailable}. Outside a project, commands that read Core use the Core of the release that answers; ${unwritable ? 'make that folder writable and run again' : 'run again when the package registry can be reached'}.`;
+}
+
+/**
  * Like {@link findCoreDir}, but a copy that carries no Core installs its
  * release's Core into the per-user cache first. Throws ERR_CORE_NOT_FOUND
  * when there is no Core to answer from, and ERR_VERSIONS_UNAVAILABLE when the
@@ -52,7 +70,7 @@ export function requireCoreDir(startDir = process.cwd()) {
   if (typeof found === 'string') return found;
   if (found.unavailable) {
     throw codedError(
-      `${found.unavailable}. Outside a project, commands that read Core use the Core of the release that answers; ${/cannot be written/.test(found.unavailable) ? 'make that folder writable and run again' : 'run again when the package registry can be reached'}.`,
+      unavailableCoreMessage(found, runChoice(startDir).inProject),
       ERROR_CODES.ERR_VERSIONS_UNAVAILABLE,
     );
   }
@@ -91,7 +109,7 @@ export function findCarriedCoreDir(startDir, {fetch = false} = {}) {
  * not the project's own CLI.
  * @param {string} startDir
  * @param {boolean} [fetch]
- * @returns {{dir: string | null, unavailable: string | null}}
+ * @returns {{dir: string | null, unavailable: string | null, version?: string, reason?: string}}
  */
 function carriedCoreFor(startDir, fetch = false) {
   const carried = carriedCore({fetch: false});

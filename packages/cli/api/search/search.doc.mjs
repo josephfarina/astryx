@@ -49,7 +49,7 @@ export const doc = {
       name: 'options.cwd',
       type: 'string',
       description:
-        "Directory to resolve @astryxdesign/core from: the project's, else, outside a project, the Core of the release that answers, installed into the per-user cache first when needed. A docs-only or themes-only search (`type: 'doc'` or `type: 'theme'`) does not need it. A search with no `type` covers the docs and themes alone only when that Core cannot be obtained, and then says so in `meta.partial`.",
+        "Directory to resolve @astryxdesign/core from: the project's installed Core, else, outside a project or in a project with nothing installed, the Core of the release that answers, installed into the per-user cache first when needed. A docs-only or themes-only search (`type: 'doc'` or `type: 'theme'`) does not need it. A search with no `type` covers the docs and themes alone only when that Core cannot be obtained, and then says so in `meta.partial`.",
     },
   ],
   returns: [
@@ -70,7 +70,7 @@ export const doc = {
     },
     {
       code: 'ERR_VERSIONS_UNAVAILABLE',
-      when: "`type` names a domain that reads @astryxdesign/core, and outside a project the Core of the release that answers cannot be installed into the per-user cache; a search with no `type` answers with `meta.partial` instead",
+      when: "`type` names a domain that reads @astryxdesign/core, and outside a project, or in a project with nothing installed, the Core of the release that answers cannot be installed into the per-user cache; a search with no `type` answers with `meta.partial` instead",
     },
   ],
   examples: [

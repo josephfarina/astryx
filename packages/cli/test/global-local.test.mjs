@@ -332,6 +332,18 @@ describe.skipIf(!POSIX)(
       const r = run(g.bin, ['--version'], {cwd: dir, pc});
       expect(r.stdout).toBe('9.0.0');
       expect(r.lines).toEqual([noCliHint('9.0.0', '9.0.1')]);
+      // A command that reads Core uses the answering release's own Core; when
+      // it cannot be downloaded, the error says so for this project.
+      const offline = run(g.bin, ['component', 'Button', '--json'], {
+        cwd: dir,
+        pc,
+      });
+      const error = JSON.parse(offline.stdout);
+      expect(error.code).toBe('ERR_VERSIONS_UNAVAILABLE');
+      expect(error.error).toMatch(
+        /^This project has no Core installed, and Core 9\.0\.0 could not be downloaded \(.+\)\. Install the project's dependencies, then run again\.$/u,
+      );
+      expect(error.error).not.toMatch(/Outside a project/u);
       expect(filesIn(dir)).toEqual(before);
     });
 

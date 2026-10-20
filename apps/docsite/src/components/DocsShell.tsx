@@ -28,6 +28,9 @@ import {
   type ComponentSidebarItem,
 } from './componentSidebarData';
 
+/** Guide topics the sidebar lists as top-level items, above the Guide. */
+const TOP_LEVEL_TOPICS = ['getting-started', 'global'];
+
 interface DocsShellProps {
   children: React.ReactNode;
   packages: PackageMeta[];
@@ -125,10 +128,11 @@ export function DocsShell({children, packages, docTopics}: DocsShellProps) {
   const libraryPackages = packages.filter(p => !isTheme(p) && !p.canaryOnly);
   const canaryPackages = packages.filter(p => !isTheme(p) && p.canaryOnly);
 
-  // Classify doc topics by category (from data). Getting Started is promoted
-  // to a top-level nav item, so it is excluded from the Guide section.
+  // Classify doc topics by category (from data). Getting Started and Global
+  // Mode are promoted to top-level nav items, so they are excluded from the
+  // Guide section.
   const guideTopics = docTopics
-    .filter(d => d.category === 'guide' && d.topic !== 'getting-started')
+    .filter(d => d.category === 'guide' && !TOP_LEVEL_TOPICS.includes(d.topic))
     .sort((a, b) => a.title.localeCompare(b.title));
   const foundationTopics = docTopics
     .filter(d => d.category === 'foundations')
@@ -207,6 +211,11 @@ export function DocsShell({children, packages, docTopics}: DocsShellProps) {
                   label="Getting Started"
                   href="/docs/getting-started"
                   isSelected={pathname === '/docs/getting-started'}
+                />
+                <SideNavItem
+                  label="Global Mode"
+                  href="/docs/global"
+                  isSelected={pathname === '/docs/global'}
                 />
                 <SideNavItem
                   label="What's New"
