@@ -68,10 +68,10 @@ import {
 } from '../../../foundation/env/package-manager.mjs';
 import {
   CLI_ROOT,
-  findCarriedCoreDir,
   findCoreDir,
   findInstalledPackage,
 } from '../../../foundation/fs/paths.mjs';
+import {fetchCarriedThemeCoreDir} from '../_adapter.mjs';
 import {
   assertWithin,
   sanitizeName,
@@ -313,7 +313,7 @@ async function loadProjectCore(cwd, cliCore) {
   // Outside a project, the Core the answering copy carries (spec AST-081 FR3).
   const dir =
     findInstalledPackage(cwd, '@astryxdesign/core') ??
-    findCarriedCoreDir(cwd, {fetch: true});
+    fetchCarriedThemeCoreDir(cwd);
   const themeFile = dir ? importTarget(dir, './theme') : null;
   if (!dir || !themeFile) return null;
   if (cliCore.themeModule) {

@@ -1708,7 +1708,7 @@ describe.skipIf(!POSIX)(
 
     it('G52 the global copy installs its own Core into the cache in the background, never in CI and never blocking a command; offline, the failure waits out the backoff', async () => {
       const pc = computer();
-      const g = globalCli('npm', '9.0.0', {root: pc.home});
+      const g = globalCli('npm', '9.0.0', {root: pc.home, coreStep: true});
       const empty = tempDir('empty');
       const failed = path.join(
         pc.astryxCache,
@@ -1804,6 +1804,92 @@ describe.skipIf(!POSIX)(
         fs.existsSync(path.join(pc.home, '.agents', 'skills', 'astryx')),
       ).toBe(false);
     });
+
+    it('G54 a folder deeper than the nearby look in a project with its own CLI: that CLI answers, and no false hint', () => {
+      const pc = computer();
+      const g = globalCli('npm', '9.0.5', {root: pc.home});
+      const dir = makeProject({core: '9.0.0', cli: '9.0.0'});
+      for (const rel of [
+        ['src', 'a', 'b', 'c', 'd', 'e'],
+        ['src', 'app', '(shop)', 'orders', '[id]', 'edit', 'deeper'],
+      ]) {
+        const deep = path.join(dir, ...rel);
+        fs.mkdirSync(deep, {recursive: true});
+        const r = run(g.bin, ['--version'], {cwd: deep, pc});
+        expect(r.stdout).toBe('9.0.0');
+        expect(r.lines).toEqual([handedTo('9.0.0')('9.0.5')]);
+      }
+    });
+
+    it('G55 a --json run in a fresh clone returns before the background Core step ends, with clean JSON', async () => {
+      const pc = computer();
+      const g = globalCli('npm', '9.0.0', {root: pc.home});
+      // A slow stand-in for the step, which marks when it starts and ends.
+      const startedMark = path.join(pc.home, 'core-step-started');
+      const marker = path.join(pc.home, 'core-step-ended');
+      const worker = path.join(
+        g.dir,
+        'foundation',
+        'release',
+        'core-worker.mjs',
+      );
+      fs.rmSync(worker, {force: true});
+      fs.writeFileSync(
+        worker,
+        [
+          "import * as fs from 'node:fs';",
+          `fs.writeFileSync(${JSON.stringify(startedMark)}, '');`,
+          `setTimeout(() => fs.writeFileSync(${JSON.stringify(marker)}, ''), 20000);`,
+        ].join('\n'),
+      );
+      const dir = makeProject({declare: {'@astryxdesign/core': '^9.0.0'}});
+      writeJson(path.join(dir, 'package-lock.json'), {
+        lockfileVersion: 3,
+        packages: {'node_modules/@astryxdesign/core': {version: '9.0.0'}},
+      });
+      const started = Date.now();
+      // spawnSync waits until the run's output pipes close.
+      const r = run(g.bin, ['docs', '--json'], {cwd: dir, pc});
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect(() => JSON.parse(r.stdout)).not.toThrow();
+      expect(r.stderr).toBe('');
+      expect(fs.existsSync(marker)).toBe(false);
+      // The step did start, after the command.
+      for (let i = 0; i < 50 && !fs.existsSync(startedMark); i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      expect(fs.existsSync(startedMark)).toBe(true);
+    });
+
+    it("G56 an open search outside a project gets the release's Core as component does; when it cannot, it says what it skipped, never silently", () => {
+      const pc = computer();
+      const g = globalCli('npm', '9.0.0', {root: pc.home});
+      const empty = tempDir('empty');
+      // Offline, with nothing cached: one install attempt, then the rest of
+      // the search, flagged.
+      const json = run(g.bin, ['search', 'button', '--json'], {cwd: empty, pc});
+      expect(json.status).toBe(0);
+      expect(JSON.parse(json.stdout).meta.partial).toMatchObject({
+        skipped: ['component', 'hook', 'template'],
+        reason: expect.stringContaining('could not be installed'),
+      });
+      const text = run(g.bin, ['search', 'button'], {cwd: empty, pc});
+      expect(text.status).toBe(0);
+      expect(
+        text.lines.filter(l =>
+          l.startsWith(
+            'astryx: components, hooks, and templates were not searched: ',
+          ),
+        ),
+      ).toHaveLength(1);
+      // With the release cached, the search reads its Core: nothing skipped.
+      seedPackedRelease(pc.astryxCache, '9.0.0');
+      const cached = run(g.bin, ['search', 'button', '--json'], {
+        cwd: empty,
+        pc,
+      });
+      expect(JSON.parse(cached.stdout).meta?.partial).toBeUndefined();
+    });
   },
 );
 
@@ -1812,6 +1898,6 @@ it('names every row of the table exactly once', () => {
   const rows = [
     ...text.matchAll(/^\s+it(?:\.skipIf\([^)]*\)\()?\(?\s*['"](G\d+) /gmu),
   ].map(m => m[1]);
-  expect(rows).toEqual(Array.from({length: 53}, (_, i) => `G${i + 1}`));
+  expect(rows).toEqual(Array.from({length: 56}, (_, i) => `G${i + 1}`));
   expect(os.EOL).toBeTypeOf('string');
 });

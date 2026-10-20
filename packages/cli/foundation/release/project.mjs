@@ -400,8 +400,15 @@ export function findLockfile(memberDir) {
  */
 export function readReleaseFacts(startDir) {
   const core = findReadCore(startDir);
-  const cli = findProjectCli(startDir);
   const declaring = findDeclaringPackage(startDir);
+  // A folder deeper than the nearby look reaches still belongs to the project
+  // the walk found, so its own CLI is looked up from there too, as a package
+  // runner resolves the project's command from any depth (spec AST-081 FR2).
+  const cli =
+    findProjectCli(startDir) ??
+    (declaring && declaring.dir !== path.resolve(startDir)
+      ? findProjectCli(declaring.dir)
+      : null);
   let lockedCoreVersion = null;
   let lockedCliVersion = null;
   if (declaring && (!core || !cli)) {

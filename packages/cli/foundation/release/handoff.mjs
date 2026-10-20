@@ -153,13 +153,17 @@ export async function startRun({cliRoot, argv}) {
     } catch {
       // Nor does the agent text.
     }
-    try {
-      // And its own Core, so component reads work offline outside a project
-      // after one online run (FR3).
-      maybeFetchCore({release: self, cacheDir});
-    } catch {
-      // Nor does the Core download.
-    }
+    // And its own Core, so component reads work offline outside a project
+    // after one online run (FR3). Started as the run ends, so it never takes
+    // the install lock from this run's own Core read, nor holds anything the
+    // command's caller waits on while the command runs.
+    process.once('exit', () => {
+      try {
+        maybeFetchCore({release: self, cacheDir});
+      } catch {
+        // Nor does the Core download.
+      }
+    });
   }
 
   const computer = isComputerLevel(argv);

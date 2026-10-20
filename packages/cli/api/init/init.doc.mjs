@@ -130,7 +130,6 @@ export const doc = {
     {label: 'All features', code: 'await init({all: true});'},
     {label: 'Remove agent docs', code: 'await init({removeAgents: true});'},
         {label: 'Agent text for the whole computer', code: 'const r = await init({user: true});\nfor (const w of r.data.warnings) console.warn(w);'},
-    {label: 'Agent text for some agents only', code: "await init({user: true, agent: 'claude,codex'});"},
   ],
   command: 'init',
   related: ['doctor', 'upgrade', 'build', 'themeTemplate'],

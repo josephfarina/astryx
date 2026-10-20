@@ -256,7 +256,13 @@ export function maybeKeepAgentText({
  * under way, no recent attempt failed (the release cache's backoff), and
  * `CI` is not set. It never blocks a command, prints nothing, and a failure
  * is retried by a later run's step. Returns whether it was started.
- * @param {{release: {version: string, root: string}, cacheDir: string, env?: NodeJS.ProcessEnv, start?: typeof startWorker}} options
+ *
+ * On Windows a detached child inherits the caller's open handles, such as the
+ * pipes a tool or agent reads this run's output from, and the caller then
+ * waits for the download to end; so there it starts only when this run's
+ * output goes to a terminal, and otherwise a component read fetches the Core
+ * itself when it needs it.
+ * @param {{release: {version: string, root: string}, cacheDir: string, env?: NodeJS.ProcessEnv, start?: typeof startWorker, platform?: NodeJS.Platform, interactive?: boolean}} options
  * @returns {boolean}
  */
 export function maybeFetchCore({
@@ -264,8 +270,11 @@ export function maybeFetchCore({
   cacheDir,
   env = process.env,
   start = startWorker,
+  platform = process.platform,
+  interactive = Boolean(process.stdout.isTTY && process.stderr.isTTY),
 }) {
   if (isCi(env) || !isReleaseVersion(release.version)) return false;
+  if (platform === 'win32' && !interactive) return false;
   const beside = readJson(
     path.join(release.root, '..', 'core', 'package.json'),
   );

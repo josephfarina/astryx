@@ -149,7 +149,9 @@ describe('maybeFetchCore', () => {
     expect(
       maybeFetchCore({release: r, cacheDir, env: {CI: 'true'}, start}),
     ).toBe(false);
-    expect(maybeFetchCore({release: r, cacheDir, env: {}, start})).toBe(true);
+    expect(
+      maybeFetchCore({release: r, cacheDir, env: {}, start, platform: 'linux'}),
+    ).toBe(true);
     expect(started).toEqual([
       path.join(r.root, 'foundation', 'release', 'core-worker.mjs'),
     ]);
@@ -160,7 +162,27 @@ describe('maybeFetchCore', () => {
       beside,
       JSON.stringify({name: '@astryxdesign/core', version: '0.8.0'}),
     );
-    expect(maybeFetchCore({release: r, cacheDir, env: {}, start})).toBe(false);
+    expect(
+      maybeFetchCore({release: r, cacheDir, env: {}, start, platform: 'linux'}),
+    ).toBe(false);
+  });
+
+  it('on Windows, starts only when the run writes to a terminal, so no caller waits on inherited pipes', () => {
+    const start = () => {};
+    const r = release();
+    const cacheDir = tempDir('cache');
+    const base = {
+      release: r,
+      cacheDir,
+      env: {},
+      start,
+      platform: /** @type {const} */ ('win32'),
+    };
+    expect(maybeFetchCore({...base, interactive: false})).toBe(false);
+    expect(maybeFetchCore({...base, interactive: true})).toBe(true);
+    expect(
+      maybeFetchCore({...base, platform: 'linux', interactive: false}),
+    ).toBe(true);
   });
 
   it('waits out a recent failure and an install under way', () => {
@@ -169,13 +191,17 @@ describe('maybeFetchCore', () => {
     const cacheDir = tempDir('cache');
     const releases = path.join(cacheDir, 'releases');
     fs.mkdirSync(path.join(releases, '.lock-0.8.0'), {recursive: true});
-    expect(maybeFetchCore({release: r, cacheDir, env: {}, start})).toBe(false);
+    expect(
+      maybeFetchCore({release: r, cacheDir, env: {}, start, platform: 'linux'}),
+    ).toBe(false);
     fs.rmSync(path.join(releases, '.lock-0.8.0'), {recursive: true});
     fs.writeFileSync(
       path.join(releases, '.failed-0.8.0.json'),
       JSON.stringify({at: Date.now(), reason: 'offline', failures: 1}),
     );
-    expect(maybeFetchCore({release: r, cacheDir, env: {}, start})).toBe(false);
+    expect(
+      maybeFetchCore({release: r, cacheDir, env: {}, start, platform: 'linux'}),
+    ).toBe(false);
     fs.writeFileSync(
       path.join(releases, '.failed-0.8.0.json'),
       JSON.stringify({
@@ -184,7 +210,9 @@ describe('maybeFetchCore', () => {
         failures: 1,
       }),
     );
-    expect(maybeFetchCore({release: r, cacheDir, env: {}, start})).toBe(true);
+    expect(
+      maybeFetchCore({release: r, cacheDir, env: {}, start, platform: 'linux'}),
+    ).toBe(true);
   });
 });
 

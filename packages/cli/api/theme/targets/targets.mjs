@@ -12,7 +12,7 @@
  */
 
 import * as path from 'node:path';
-import {requireCoreDir} from '../../../foundation/fs/paths.mjs';
+import {requireThemeCoreDir} from '../_adapter.mjs';
 import {collectThemingTargets} from '../../../foundation/discovery/theming-targets.mjs';
 import {ERROR_CODES} from '../../../foundation/response/error-codes.mjs';
 import {AstryxError, coreDirOrThrow} from '../../error.mjs';
@@ -46,7 +46,7 @@ function matchesLoosely(target, filter) {
  * @returns {Promise<import('../theme.type.mjs').ThemeTargetsResponse>}
  */
 export async function themeTargets(filter, {cwd = process.cwd()} = {}) {
-  const coreDir = coreDirOrThrow(requireCoreDir, cwd);
+  const coreDir = coreDirOrThrow(requireThemeCoreDir, cwd);
 
   const all = await collectThemingTargets(path.join(coreDir, 'src'));
   const needle = filter ? String(filter).toLowerCase() : null;

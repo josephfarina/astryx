@@ -706,10 +706,14 @@ export function tryLock(lockDir, {now = Date.now()} = {}) {
  */
 function processFactsOf(pid, procRoot) {
   try {
-    const argv = fs
+    let argv = fs
       .readFileSync(path.join(procRoot, String(pid), 'cmdline'), 'utf-8')
       .split('\u0000')
       .filter(Boolean);
+    // npm sets its process title to its command line, which Linux shows as
+    // one argument ("npm install @astryxdesign/cli@0.7.2 …"): split it as the
+    // ps path does.
+    if (argv.length === 1) argv = argv[0].trim().split(/\s+/u);
     /** @type {number | null} */
     let startedAt = null;
     try {

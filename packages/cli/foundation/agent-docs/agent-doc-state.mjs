@@ -126,7 +126,7 @@ export function isAstryxPromptInReach(startDir = process.cwd()) {
  * @returns {string | null}
  */
 function findRepositoryRoot(start) {
-  for (let dir = start; ;) {
+  for (let dir = start; ; ) {
     if (fs.existsSync(path.join(dir, '.git'))) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) return null;

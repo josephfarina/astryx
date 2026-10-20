@@ -142,12 +142,20 @@ function linkTree(from, to) {
  * Put a copy of the packed CLI at `dir`, labeled `version`.
  * @param {string} dir the package folder to create
  * @param {string} version
- * @param {{engines?: Record<string, string>}} [options]
+ * The copy leaves out the global copy's background Core step
+ * (core-worker.mjs), as a release that predates it does, so no test's run
+ * starts a download behind its back; `coreStep: true` keeps it.
+ * @param {{engines?: Record<string, string>, coreStep?: boolean}} [options]
  * @returns {{dir: string, bin: string}}
  */
 export function placeCli(dir, version, options = {}) {
   const from = packedCli();
   linkTree(from, dir);
+  if (!options.coreStep) {
+    fs.rmSync(path.join(dir, 'foundation', 'release', 'core-worker.mjs'), {
+      force: true,
+    });
+  }
   const pkgFile = path.join(dir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
   fs.unlinkSync(pkgFile);
@@ -244,7 +252,7 @@ const LAYOUTS = {
  * `astryx` command linked into its bin folder.
  * @param {keyof typeof LAYOUTS} layout
  * @param {string} version
- * @param {{root?: string, engines?: Record<string, string>}} [options]
+ * @param {{root?: string, engines?: Record<string, string>, coreStep?: boolean}} [options]
  * @returns {{dir: string, bin: string, binDir: string}}
  */
 export function globalCli(layout, version, options = {}) {

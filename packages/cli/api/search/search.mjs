@@ -82,11 +82,8 @@
 
 import {withListingCache} from '../../foundation/fs/listing-cache.mjs';
 import {readDocView} from '../../foundation/doc-compiler/read.mjs';
-import {
-  discoverExternalPackages,
-  findCoreDir,
-  requireCoreDir,
-} from '../../foundation/fs/paths.mjs';
+import {discoverExternalPackages} from '../../foundation/fs/paths.mjs';
+import {requireSearchCoreDir} from './_adapter.mjs';
 import {isOutsideProject} from '../../foundation/env/project-scope.mjs';
 import {
   discoverComponents,
@@ -1942,10 +1939,24 @@ async function searchOnce(query, options) {
   // name, it is an error without core; an open search then covers the docs
   // and themes alone.
   const needsCore = !type || !CORELESS_DOMAINS.includes(type);
-  // Asked for by name, a domain that reads Core fetches the carried Core
-  // when it must; an open search answers from whatever Core is at hand.
-  const coreDir =
-    type && needsCore ? coreDirOrThrow(requireCoreDir, cwd) : needsCore ? findCoreDir(cwd) : null;
+  // A domain that reads Core gets it as `component` does: the project's, else
+  // the answering release's own, installed into the per-user cache on first
+  // need (spec AST-081 FR3). Asked for by name, a Core that cannot be had is
+  // the error; an open search answers from the rest and says what it skipped
+  // and why, never silently.
+  /** @type {string | null} */
+  let coreDir = null;
+  /** @type {string | null} */
+  let coreSkipped = null;
+  if (needsCore && type) {
+    coreDir = coreDirOrThrow(requireSearchCoreDir, cwd);
+  } else if (needsCore) {
+    try {
+      coreDir = requireSearchCoreDir(cwd);
+    } catch (error) {
+      coreSkipped = /** @type {Error} */ (error).message;
+    }
+  }
 
   // Gather candidates from each requested domain in parallel.
   /** @param {string} d */
@@ -2044,6 +2055,14 @@ async function searchOnce(query, options) {
       ),
     },
   };
+  if (coreSkipped) {
+    response.meta = {
+      partial: {
+        skipped: ['component', 'hook', 'template'],
+        reason: coreSkipped,
+      },
+    };
+  }
   if (wants('component')) {
     searchedComponentsOf.set(
       response,

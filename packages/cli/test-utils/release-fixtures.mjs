@@ -31,7 +31,14 @@ export function tempDir(label = 'release') {
 /** Remove every folder {@link tempDir} made. */
 export function cleanupFixtures() {
   for (const dir of made.splice(0)) {
-    fs.rmSync(dir, {recursive: true, force: true});
+    // A global copy's background Core step, started as a run ends, may still
+    // be writing its record into a test's cache folder: retry until it is done.
+    fs.rmSync(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 20,
+      retryDelay: 100,
+    });
   }
 }
 

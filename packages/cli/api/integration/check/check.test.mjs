@@ -46,6 +46,26 @@ describe('summarizeCheck', () => {
     ).toEqual({errors: 1, warnings: 1, skipped: [], failed: true});
   });
 
+  it('reports a malformed cliCommand without counting it toward --strict, until a minor release names the code', () => {
+    const response = {
+      type: 'integration.validate',
+      data: {
+        ...IDENTITY,
+        issues: [
+          {code: 'invalid_cli_command', severity: 'warning', message: 'w'},
+        ],
+      },
+    };
+    expect(summarizeCheck(/** @type {any} */ (response))).toEqual({
+      errors: 0,
+      warnings: 0,
+      skipped: [],
+      failed: false,
+    });
+    // The issue itself stays in the result, for the author to read.
+    expect(response.data.issues).toHaveLength(1);
+  });
+
   it('counts warning conflicts as warnings and ignores info', () => {
     const conflict = (/** @type {'warning' | 'info'} */ severity) =>
       /** @type {any} */ ({severity, id: 'x', message: 'm'});

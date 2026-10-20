@@ -267,6 +267,15 @@ describe.skipIf(process.platform === 'win32')(
     it('reads the install only from its exact program and arguments', () => {
       const ok = ['/usr/bin/node', '/x/npm/bin/npm-cli.js', ...INSTALL];
       expect(isReleaseInstall(ok, '9.9.9')).toBe(true);
+      // npm's own process title, split on whitespace.
+      expect(
+        isReleaseInstall(
+          'npm install --no-save @astryxdesign/cli@9.9.9 @astryxdesign/core@9.9.9'.split(
+            ' ',
+          ),
+          '9.9.9',
+        ),
+      ).toBe(true);
       expect(isReleaseInstall(['C:\\npm\\npm.cmd', ...INSTALL], '9.9.9')).toBe(
         true,
       );
@@ -285,6 +294,31 @@ describe.skipIf(process.platform === 'win32')(
         expect(isReleaseInstall(argv, '9.9.9'), argv.join(' ')).toBe(false);
       }
     });
+
+    it.skipIf(!fs.existsSync('/proc/self/stat'))(
+      "reads npm's rewritten process title from /proc, one argument, and ends that install",
+      async () => {
+        const at = Date.now() - 1000;
+        const npm = startGroup(process.execPath, ['-e', SLEEP]);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        // A process table whose cmdline is npm's title: one NUL-terminated string.
+        const procRoot = tempDir('proc');
+        fs.mkdirSync(path.join(procRoot, String(npm)));
+        fs.writeFileSync(
+          path.join(procRoot, String(npm), 'cmdline'),
+          'npm install --no-save @astryxdesign/cli@9.9.9 @astryxdesign/core@9.9.9\u0000',
+        );
+        // procfs files report size 0, so they are read, not copied.
+        for (const [from, to] of [
+          [`/proc/${npm}/stat`, path.join(procRoot, String(npm), 'stat')],
+          ['/proc/stat', path.join(procRoot, 'stat')],
+        ]) {
+          fs.writeFileSync(to, fs.readFileSync(from, 'utf8'));
+        }
+        expect(endRecordedInstall(lockFor(npm, at), {procRoot})).toBe('ended');
+        expect(await until(() => !alive(npm))).toBe(true);
+      },
+    );
 
     it('leaves a program named my-npm-tool, and one with npm only in an argument', async () => {
       const now = Date.now();

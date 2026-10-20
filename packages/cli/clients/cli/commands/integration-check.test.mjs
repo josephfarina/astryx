@@ -248,7 +248,7 @@ describe('astryx integration check', () => {
       '"typecheck": "tsc --noEmit && astryx integration check --strict"',
     );
     expect(run.stdout).toContain(
-      'A new check or failure code joins only in a minor release, named in the release notes.',
+      'A new check or failure code joins only in a minor release, named in the release notes; until then, `invalid_cli_command` (a malformed `cliCommand`) is reported but does not fail it.',
     );
     expect(run.stdout).toContain('integration verify');
     expect(run.stdout).toContain('against the package in the current folder');

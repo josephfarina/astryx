@@ -141,7 +141,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "Outside a project, commands that read components (`component`, `search`, `template`, `build`, and the like) use your global version's Core. It ships beside the CLI only for some installs; otherwise your global install downloads it once into its cache in the background after a command you run online, and a component command before that, offline, fails with `ERR_VERSIONS_UNAVAILABLE`. Reinstalling the CLI does not help: run any command once online, and component reads work offline from then on. In CI nothing downloads in the background, so the first component command there needs the registry. The global-mode pages (`astryx docs global`) read offline either way.",
+          text: "Outside a project, commands that read components (`component`, `search`, `template`, `build`, and the like) use your global version's Core. It ships beside the CLI only for some installs; otherwise your global install downloads it once into its cache in the background after a command you run online (on Windows, from a terminal), and a component command before that, offline, fails with `ERR_VERSIONS_UNAVAILABLE`. Reinstalling the CLI does not help: run any command once online, and component reads work offline from then on. In CI nothing downloads in the background, so the first component command there needs the registry. The global-mode pages (`astryx docs global`) read offline either way.",
         },
       ],
     },

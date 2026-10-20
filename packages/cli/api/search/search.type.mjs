@@ -38,6 +38,11 @@
  * @property {string} data.query
  * @property {number} data.matchCount - How many candidates matched the query in total, before `limit` was applied. `results` is the bounded slice of that set, so `matchCount > results.length` means the answer was capped.
  * @property {SearchResultEntry[]} data.results
+ * @property {{partial?: {skipped: SearchDomain[], reason: string}}} [meta] -
+ *   `partial`, when an open search could not get the Core that components,
+ *   hooks, and templates are read from (such as outside a project, offline,
+ *   before the release's Core was downloaded): the domains it skipped and why.
+ *   The results are the docs and themes.
  */
 
 /**

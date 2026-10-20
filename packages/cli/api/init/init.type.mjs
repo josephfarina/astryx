@@ -71,8 +71,8 @@
  * @property {string} [features] Comma-separated features to install (agents, theme, template).
  * @property {boolean} [all] Install all features.
  * @property {boolean} [removeAgents] Remove the managed agent-docs block instead of installing; with `user`, remove the computer-level agent text.
- * @property {boolean} [user] Write the computer-level agent text (`~/.agents/skills/astryx/SKILL.md`, `~/.claude/skills/astryx/SKILL.md`, and the skill folders of installed single-folder tools) instead of setting up the folder.
- * @property {string} [agent] Agent preset: claude, cursor, codex, hermes, muse, all. With `user`, a comma-separated list of claude, codex, gemini, copilot, cursor, opencode, crush, qwen, cline, amp, goose, roo, zed, continue, kiro, windsurf.
+ * @property {boolean} [user] Write the computer-level agent text (`~/.agents/skills/astryx/SKILL.md`, linked into `~/.claude/skills` and the skill folders of other installed tools, with a copy for Continue) instead of setting up the folder.
+ * @property {string} [agent] Agent preset: claude, cursor, codex, hermes, muse, all. Refused with `user`.
  * @property {string | string[]} [agentDocsPath] Explicit agent-docs file path(s).
  * @property {string} [templateName] Scaffold a named page template (programmatic only; the CLI never sets it).
  */
