@@ -1444,7 +1444,7 @@ export function checkNewestRelease(ctx) {
   if (!latest) {
     return {
       ...base,
-      message: 'Update check: not run yet (it runs in the background, once a day).',
+      message: 'Update check: not run yet, so the newest release is not known here; it runs in the background once a day, after a command.',
     };
   }
   if (isValidSemver(latest) && isValidSemver(cli) && semverCompare(latest, cli) > 0) {

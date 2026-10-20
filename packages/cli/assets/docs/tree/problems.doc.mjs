@@ -107,7 +107,7 @@ export const docs = {
         },
         {
           type: 'prose',
-          text: "The project's own CLI cannot start, so Astryx needs the CLI version equal to its Core, and could not get it, so the command still runs: the astryx command you started answers, as before global mode. Its answers may not match the project's Core until you fix the cause. With `--json`, `meta.answeredBy.copy` is `fallback`. Astryx waits 10 minutes before trying the download again; reinstalling the project's dependencies fixes the project's own CLI.",
+          text: "The project's own CLI cannot start, so Astryx needs the CLI version equal to its Core, and could not get it, so the command still runs: the astryx command you started answers, as before global mode. Its answers may not match the project's Core until you fix the cause. With `--json`, `meta.answeredBy.copy` is `fallback`. Astryx waits 2 minutes before trying the download again, and 10 minutes after a second failure in a row; reinstalling the project's dependencies fixes the project's own CLI.",
         },
         {
           type: 'list',
@@ -117,6 +117,31 @@ export const docs = {
             "The registry does not have it: a private registry without the Astryx packages. Point npm's registry for `@astryxdesign` at one that has them.",
             'The cache cannot be written: a read-only home folder, as in some containers. Point `XDG_CACHE_HOME` at a writable folder: {@link generic:ci-and-containers}.',
           ],
+        },
+      ],
+    },
+    {
+      id: 'not-global',
+      title: 'A global install that gets no update notice or agent guide',
+      content: [
+        {
+          type: 'prose',
+          text: "Astryx treats a copy as installed for your computer only when your package manager's own settings name its folder: npm's global prefix, Bun's `BUN_INSTALL`, Yarn's `global-folder`, pnpm's `PNPM_HOME`, or their defaults. A folder chosen only with a one-off flag, such as `yarn global add --global-folder ~/mine`, is not in any setting, so Astryx treats that copy like a project's: no daily update check and no agent guide. Save the folder in your settings so Astryx knows it is a global install:",
+        },
+        {
+          type: 'code',
+          lang: 'bash',
+          code: 'yarn config set global-folder ~/mine   # writes ~/.yarnrc\nexport BUN_INSTALL=~/mybun              # in your shell profile, for Bun',
+        },
+      ],
+    },
+    {
+      id: 'core-offline',
+      title: '"Core … could not be installed" outside a project',
+      content: [
+        {
+          type: 'prose',
+          text: "Outside a project, commands that read components (`component`, `search`, `template`, `build`, and the like) use your global version's Core. It ships beside the CLI only for some installs; otherwise your global install downloads it once into its cache in the background after a command you run online, and a component command before that, offline, fails with `ERR_VERSIONS_UNAVAILABLE`. Reinstalling the CLI does not help: run any command once online, and component reads work offline from then on. In CI nothing downloads in the background, so the first component command there needs the registry. The global-mode pages (`astryx docs global`) read offline either way.",
         },
       ],
     },

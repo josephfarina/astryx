@@ -303,6 +303,56 @@ export function installPlaceOf(root) {
 }
 
 /**
+ * Whether `root` is inside a pnpm store's `links` folder (`<store>/v<N>/links`),
+ * where the global virtual store keeps its packages.
+ * @param {string} root
+ * @returns {boolean}
+ */
+function inPnpmStoreLinks(root) {
+  const parts = root.split(/[\\/]/);
+  const at = parts.lastIndexOf('links');
+  return at >= 2 && /^v\d+$/u.test(parts[at - 1]);
+}
+
+/**
+ * Whether a global folder of pnpm's, as its settings name it, installs the
+ * CLI package at `root`: `<global-dir>/v<N>/<id>/node_modules/@astryxdesign/cli`
+ * (or `<global-dir>/<N>/node_modules/…` before pnpm 11) resolves to it.
+ * @param {string} root the CLI package's real folder
+ * @param {GlobalWhere} where
+ * @returns {boolean}
+ */
+function linkedFromPnpmGlobal(root, where) {
+  const platform = where.platform ?? process.platform;
+  const cliIn = (/** @type {string} */ dir) =>
+    path.join(dir, 'node_modules', '@astryxdesign', 'cli');
+  for (const known of configuredGlobalFolders(where)) {
+    if (known.manager !== 'pnpm') continue;
+    /** @type {string[]} */
+    let versions;
+    try {
+      versions = fs.readdirSync(known.folder);
+    } catch {
+      continue;
+    }
+    for (const version of versions.filter(v => /^v?\d+$/u.test(v))) {
+      const dir = path.join(known.folder, version);
+      /** @type {string[]} */
+      let ids = [];
+      try {
+        ids = fs.readdirSync(dir);
+      } catch {
+        // Not a folder.
+      }
+      for (const candidate of [dir, ...ids.map(id => path.join(dir, id))]) {
+        if (samePath(real(cliIn(candidate)), root, platform)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Is the running copy the CLI package installed for the computer
  * (`npm i -g`, `pnpm add -g`, `yarn global add`, `bun add -g`, Volta)?
  *
@@ -325,6 +375,10 @@ export function isGlobalCopy(cliRoot, cacheDir = userCacheDir(), where = {}) {
     return false;
   }
   if (globalFolderOf(root, where)) return true;
+  // pnpm's global virtual store keeps every package, a project's own CLI
+  // included, in `<store>/v<N>/links/…`, whose folders hold no package.json:
+  // global only when a pnpm global folder the settings name links to it.
+  if (inPnpmStoreLinks(root)) return linkedFromPnpmGlobal(root, where);
   // npm's global folder holds no package.json; a project always has one.
   return !fs.existsSync(path.join(place.owner, 'package.json'));
 }

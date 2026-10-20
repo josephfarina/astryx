@@ -195,7 +195,7 @@ function sentence(text, more) {
  * @type {Record<string, string>}
  */
 const OUTSIDE_PROJECT_TEXT = {
-  same: 'Outside a project (`same`): it answers as it would in a new project on this release, reading the Core this release carries.',
+  same: "Outside a project (`same`): it answers as it would in a new project on this release, reading this release's Core: the one installed beside the CLI, else one in the per-user cache, which a global install downloads in the background after a command run online (in CI, the first command that needs it downloads it).",
   refuse:
     'Outside a project (`refuse`): it writes nothing and fails, naming the app project or integration package it needs.',
   own: 'Outside a project (`own`): it does what the description above says it does outside a project.',
@@ -334,7 +334,8 @@ function functionSection(fn, index) {
     // A Default column only when some parameter declares a default, so a
     // function with none keeps a three-column table.
     const defaults = params.some(
-      (/** @type {any} */ p) => typeof p.default === 'string' && p.default !== '',
+      (/** @type {any} */ p) =>
+        typeof p.default === 'string' && p.default !== '',
     );
     content.push({
       type: 'table',

@@ -369,7 +369,7 @@ describe('doctor outside a project (own)', () => {
         latest,
       });
     expect(at(null).message).toBe(
-      'Update check: not run yet (it runs in the background, once a day).',
+      'Update check: not run yet, so the newest release is not known here; it runs in the background once a day, after a command.',
     );
     expect(at('1.3.0').message).toContain('1.3.0 is newer than 1.2.0');
     expect(at('1.2.0').message).toContain('No newer release is known');

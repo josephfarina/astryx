@@ -49,7 +49,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "When the project installs its own CLI and you install the project's dependencies first, there is nothing to cache. Astryx installs a version into its cache only when a project's own CLI cannot start; to skip that download on every run, cache this folder between runs:",
+          text: "When the project installs its own CLI and you install the project's dependencies first, there is nothing to cache. Astryx downloads into its cache only the CLI version a project whose own CLI cannot start needs, and, outside a project, the Core of a global install for commands that read components. In CI it downloads nothing in the background, so a global install in a CI image fetches that Core on its first component command. To skip those downloads on every run, cache this folder between runs:",
         },
         {
           type: 'table',

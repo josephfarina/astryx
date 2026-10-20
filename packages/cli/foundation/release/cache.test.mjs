@@ -17,6 +17,7 @@ import {
   runNpm,
   tryLock,
   endRecordedInstall,
+  isReleaseInstall,
   INSTALL_TIMEOUT_MS,
 } from './cache.mjs';
 import {
@@ -220,17 +221,21 @@ describe.skipIf(process.platform === 'win32')(
         }
       }
     });
-    /** A process in a group of its own: `node` or `sleep`. @param {'node' | 'sleep'} kind */
-    const startGroup = kind => {
-      const child =
-        kind === 'node'
-          ? spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
-              detached: true,
-              stdio: 'ignore',
-            })
-          : spawn('sleep', ['60'], {detached: true, stdio: 'ignore'});
+    const SLEEP = 'setTimeout(() => {}, 60000)';
+    /**
+     * A process in a group of its own, started as `program args…`.
+     * @param {string} program @param {string[]} args
+     */
+    const startGroup = (program, args) => {
+      const child = spawn(program, args, {detached: true, stdio: 'ignore'});
       started.push(child);
       return /** @type {number} */ (child.pid);
+    };
+    /** A sleeping script at `dir/name`. @param {string} name */
+    const script = name => {
+      const file = path.join(tempDir('bin'), name);
+      fs.writeFileSync(file, SLEEP);
+      return file;
     };
     /** @param {number} pid @param {number} at */
     const lockFor = (pid, at) => {
@@ -251,58 +256,133 @@ describe.skipIf(process.platform === 'win32')(
         return false;
       }
     };
-    const noProc = path.join(os.tmpdir(), 'no-proc-here');
+    const INSTALL = ['install', '--no-save', '@astryxdesign/cli@9.9.9'];
+    const until = async (/** @type {() => boolean} */ done) => {
+      for (let i = 0; i < 50 && !done(); i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      return done();
+    };
 
-    it('with a process table: only a command line that names npm', () => {
-      const now = Date.now();
-      const other = startGroup('sleep');
-      const procRoot = tempDir('proc');
-      fs.mkdirSync(path.join(procRoot, String(other)));
-      fs.writeFileSync(
-        path.join(procRoot, String(other), 'cmdline'),
-        'sleep\u000060',
+    it('reads the install only from its exact program and arguments', () => {
+      const ok = ['/usr/bin/node', '/x/npm/bin/npm-cli.js', ...INSTALL];
+      expect(isReleaseInstall(ok, '9.9.9')).toBe(true);
+      expect(isReleaseInstall(['C:\\npm\\npm.cmd', ...INSTALL], '9.9.9')).toBe(
+        true,
       );
-      // The process table says it is not npm, whatever ps would say.
-      expect(
-        endRecordedInstall(lockFor(other, now), {
-          now,
-          procRoot,
-          nameOf: () => 'node',
-        }),
-      ).toBe('left');
-      expect(alive(other)).toBe(true);
+      for (const argv of [
+        ['/opt/my-npm-tool', ...INSTALL],
+        ['python3', '-c', 'sleep', '/home/me/notes/npm-debug.log', ...INSTALL],
+        ['/usr/bin/node', '-e', 'x', 'npm', ...INSTALL],
+        [
+          '/usr/bin/node',
+          '/x/npm-cli.js',
+          'install',
+          '@astryxdesign/cli@9.9.90',
+        ],
+        ['/usr/bin/node', '/x/npm-cli.js', 'ci', '@astryxdesign/cli@9.9.9'],
+      ]) {
+        expect(isReleaseInstall(argv, '9.9.9'), argv.join(' ')).toBe(false);
+      }
     });
 
-    it('without one: only a young lock whose process is node or npm', async () => {
+    it('leaves a program named my-npm-tool, and one with npm only in an argument', async () => {
       const now = Date.now();
-      const sleeper = startGroup('sleep');
-      // The name says it is not the install: left alone.
+      const tool = path.join(tempDir('bin'), 'my-npm-tool');
+      fs.symlinkSync(process.execPath, tool);
+      const named = startGroup(tool, [script('sleep.js'), ...INSTALL]);
+      const argued = startGroup(process.execPath, [
+        '-e',
+        SLEEP,
+        'npm',
+        '/home/me/notes/npm-debug.log',
+        ...INSTALL,
+      ]);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      for (const pid of [named, argued]) {
+        expect(endRecordedInstall(lockFor(pid, now - 5000), {now})).toBe(
+          'left',
+        );
+        expect(alive(pid)).toBe(true);
+      }
+    });
+
+    it("ends the lock's own install: node running npm-cli.js install of that release, started after the lock", async () => {
+      const at = Date.now() - 1000;
+      const npm = startGroup(process.execPath, [
+        script('npm-cli.js'),
+        ...INSTALL,
+      ]);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      // An old lock, or one with no recorded start: not trusted.
       expect(
-        endRecordedInstall(lockFor(sleeper, now), {now, procRoot: noProc}),
+        endRecordedInstall(lockFor(npm, Date.now() - INSTALL_TIMEOUT_MS - 1)),
       ).toBe('left');
-      expect(alive(sleeper)).toBe(true);
-      const node = startGroup('node');
-      // A lock older than any install: its process id is not trusted.
-      expect(
-        endRecordedInstall(lockFor(node, now - INSTALL_TIMEOUT_MS - 1), {
-          now,
-          procRoot: noProc,
-        }),
-      ).toBe('left');
-      // A lock with no recorded start: not trusted either.
-      const unknown = lockFor(node, now);
+      const unknown = lockFor(npm, at);
       fs.writeFileSync(
         path.join(unknown, 'owner.json'),
         JSON.stringify({pid: 999999, host: os.hostname()}),
       );
-      expect(endRecordedInstall(unknown, {now, procRoot: noProc})).toBe('left');
-      expect(alive(node)).toBe(true);
-      // Young, and ps names node: ended.
+      expect(endRecordedInstall(unknown)).toBe('left');
+      // A lock taken after the process started: the id names an older process.
       expect(
-        endRecordedInstall(lockFor(node, now - 1000), {now, procRoot: noProc}),
+        endRecordedInstall(lockFor(npm, Date.now() + 60_000), {
+          now: Date.now() + 61_000,
+        }),
+      ).toBe('left');
+      expect(alive(npm)).toBe(true);
+      expect(endRecordedInstall(lockFor(npm, at))).toBe('ended');
+      expect(await until(() => !alive(npm))).toBe(true);
+    });
+
+    it('decides from the process facts alone, however they were read (no /proc: ps or PowerShell)', async () => {
+      const at = Date.now() - 1000;
+      // A real group to end, with facts given as ps would report them, so the
+      // outcome never depends on what this computer's ps prints.
+      const npm = startGroup(process.execPath, ['-e', SLEEP]);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const factsOf =
+        (/** @type {string[]} */ argv, startedAt = at + 500) =>
+        () => ({argv, startedAt});
+      const installArgv = [
+        '/usr/bin/node',
+        '/x/npm/bin/npm-cli.js',
+        ...INSTALL,
+      ];
+      for (const [argv, startedAt] of /** @type {const} */ ([
+        [['/opt/my-npm-tool', ...INSTALL], at + 500],
+        [['/usr/bin/node', '-e', 'x', 'npm', ...INSTALL], at + 500],
+        [
+          [
+            'python3',
+            '-c',
+            'sleep',
+            '/home/me/notes/npm-debug.log',
+            ...INSTALL,
+          ],
+          at + 500,
+        ],
+        // Started before the lock: an older process that reuses the id.
+        [installArgv, at - 5000],
+      ])) {
+        expect(
+          endRecordedInstall(lockFor(npm, at), {
+            factsOf: factsOf([...argv], startedAt),
+          }),
+          argv.join(' '),
+        ).toBe('left');
+      }
+      // Facts that cannot be read: left alone.
+      expect(
+        endRecordedInstall(lockFor(npm, at), {
+          factsOf: () => ({argv: null, startedAt: null}),
+        }),
+      ).toBe('left');
+      expect(alive(npm)).toBe(true);
+      expect(
+        endRecordedInstall(lockFor(npm, at), {factsOf: factsOf(installArgv)}),
       ).toBe('ended');
-      await new Promise(resolve => setTimeout(resolve, 200));
-      expect(alive(node)).toBe(false);
+      expect(await until(() => !alive(npm))).toBe(true);
     });
   },
 );
@@ -681,20 +761,29 @@ describe('no install outlives its run', () => {
     const cacheDir = tempDir('cache');
     const lock = path.join(releasesDir(cacheDir), '.lock-0.6.8');
     fs.mkdirSync(lock, {recursive: true});
-    // An install left running by a run that was killed: its own group, and
-    // `npm` in its command line.
+    // An install left running by a run that was killed: its own group, node
+    // running npm's entry file to install this release.
+    const at = Date.now() - 1000;
+    const npmCli = path.join(tempDir('npm'), 'npm-cli.js');
+    fs.writeFileSync(npmCli, 'setTimeout(() => {}, 120000)');
     const leftover = spawn(
       process.execPath,
-      ['-e', 'setTimeout(() => {}, 120000)', 'npm-install'],
+      [
+        npmCli,
+        'install',
+        '@astryxdesign/cli@0.6.8',
+        '@astryxdesign/core@0.6.8',
+      ],
       {
         detached: true,
         stdio: 'ignore',
       },
     );
     leftover.unref();
+    await new Promise(resolve => setTimeout(resolve, 300));
     fs.writeFileSync(
       path.join(lock, 'owner.json'),
-      JSON.stringify({pid: 2 ** 22 + 7, host: os.hostname()}),
+      JSON.stringify({pid: 2 ** 22 + 7, host: os.hostname(), at}),
     );
     fs.writeFileSync(path.join(lock, 'npm.pid'), String(leftover.pid));
     expect(alive(/** @type {number} */ (leftover.pid))).toBe(true);

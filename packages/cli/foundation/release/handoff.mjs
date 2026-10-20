@@ -35,7 +35,11 @@ import {
   runningCopy,
 } from './choose.mjs';
 import {ensureRelease, userCacheDir} from './cache.mjs';
-import {maybeKeepAgentText, maybeStartCheck} from './global-state.mjs';
+import {
+  maybeFetchCore,
+  maybeKeepAgentText,
+  maybeStartCheck,
+} from './global-state.mjs';
 import {recordRunChoice} from './run-context.mjs';
 import {noticeLines} from './notices.mjs';
 
@@ -148,6 +152,13 @@ export async function startRun({cliRoot, argv}) {
       maybeKeepAgentText({release: self});
     } catch {
       // Nor does the agent text.
+    }
+    try {
+      // And its own Core, so component reads work offline outside a project
+      // after one online run (FR3).
+      maybeFetchCore({release: self, cacheDir});
+    } catch {
+      // Nor does the Core download.
     }
   }
 

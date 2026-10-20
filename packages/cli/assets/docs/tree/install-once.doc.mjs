@@ -87,7 +87,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: 'Your global install works offline, outside a project and in a project with only Core; so does any project that installs its own CLI. Only a project whose own CLI cannot start needs a version installed or cached; when it is neither and cannot be fetched, your global install answers with a one-line warning, and Astryx waits 10 minutes before trying to download it again. {@link generic:problems} has the exact message.',
+          text: "Your global install answers offline in a project with only Core, and so does any project that installs its own CLI. Outside a project, commands that read components, such as `astryx component Button`, need your global version's Core: after any command you run online, your global install downloads it once into the cache in the background, so they work offline from then on (not in CI, where nothing downloads by itself: {@link generic:ci-and-containers}). Only a project whose own CLI cannot start needs a version installed or cached; when it is neither and cannot be fetched, your global install answers with a one-line warning, and Astryx waits 2 minutes before trying to download it again (10 minutes after a second failure in a row). {@link generic:problems} has the exact message.",
         },
       ],
     },

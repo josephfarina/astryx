@@ -28,10 +28,9 @@
  */
 
 import {search, searchedComponents} from '../../search/search.mjs';
-import {requireCoreDir} from '../../../foundation/fs/paths.mjs';
 import {coreDirOrThrow} from '../../error.mjs';
 import {getResultCoverage} from '../../search/coverage.mjs';
-import {loadComponents, loadPageTemplates, loadWeights, templateSetupNotes} from '../_adapter.mjs';
+import {loadComponents, loadPageTemplates, loadWeights, requireBuildCoreDir, templateSetupNotes} from '../_adapter.mjs';
 import {
   asksForNewPage,
   ideaKind,
@@ -259,7 +258,7 @@ export async function buildKit(query, options = {}) {
   const {cwd = process.cwd(), type, limit = 60} = options;
   // A kit is built from Core's components, hooks, and templates. An open
   // search without core covers the docs alone, so the kit asks for core here.
-  if (type !== 'doc') coreDirOrThrow(requireCoreDir, cwd);
+  if (type !== 'doc') coreDirOrThrow(requireBuildCoreDir, cwd);
   // search()'s JSDoc @returns widens results to object[]; the SearchResponse
   // shape is the contract (api/search/search.type.mjs). Cast locally rather than
   // tightening the search @returns (a separate follow-up).

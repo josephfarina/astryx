@@ -126,7 +126,7 @@ export function isAstryxPromptInReach(startDir = process.cwd()) {
  * @returns {string | null}
  */
 function findRepositoryRoot(start) {
-  for (let dir = start; ; ) {
+  for (let dir = start; ;) {
     if (fs.existsSync(path.join(dir, '.git'))) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
@@ -150,10 +150,18 @@ export const SETUP_INVOCATION = 'npx @astryxdesign/cli';
  * load it.
  *
  * @param {string} [invocation] the CLI invocation stem, e.g. `pnpm exec astryx`
+ * @param {{before?: string | null}} [options] `before`: a command to run
+ *   first, such as the one that adds the CLI to a project that has none
  * @returns {string}
  */
-export function setupNudge(invocation = SETUP_INVOCATION) {
-  return `\nNext step: run \`${invocation} init\` to finish setup and install the Astryx agent prompt.\n\n`;
+export function setupNudge(
+  invocation = SETUP_INVOCATION,
+  {before = null} = {},
+) {
+  const run = before
+    ? `\`${before}\`, then \`${invocation} init\``
+    : `\`${invocation} init\``;
+  return `\nNext step: run ${run} to finish setup and install the Astryx agent prompt.\n\n`;
 }
 
 /** The nudge with the fallback invocation. */

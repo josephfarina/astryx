@@ -308,7 +308,7 @@ const RUNNERS = {
     sites: ['child_process.spawn'],
   },
   'foundation/release/global-state.mjs': {
-    runs: "the background check of the registry's `latest` release, detached",
+    runs: "the background check of the registry's `latest` release, the agent-text step, and the step that installs the global copy's own Core into the release cache, each detached",
     sites: ['child_process.spawn'],
   },
   'foundation/release/handoff.mjs': {

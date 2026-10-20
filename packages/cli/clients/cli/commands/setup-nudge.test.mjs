@@ -121,6 +121,22 @@ describe('enforcement layer 3 — per-command setup nudge', () => {
     expect(r.stderr).toMatch(NUDGE);
   });
 
+  it("in a project with only Core of another release, names adding the CLI at Core's version first, as the daily hint does", async () => {
+    write(
+      'package.json',
+      '{"name":"t","dependencies":{"@astryxdesign/core":"0.0.1"}}',
+    );
+    write(
+      'node_modules/@astryxdesign/core/package.json',
+      '{"name":"@astryxdesign/core","version":"0.0.1"}',
+    );
+    write('package-lock.json', '{}');
+    const r = await runCli(['docs', 'tokens'], tmp);
+    expect(r.stderr).toContain(
+      'Next step: run `npm install @astryxdesign/cli@0.0.1`, then `npx astryx init` to finish setup and install the Astryx agent prompt.',
+    );
+  });
+
   it('is suppressed in --json (machine mode stays clean), stdout valid JSON', async () => {
     asProject();
     const r = await runCli(['--json', 'docs', 'tokens'], tmp);

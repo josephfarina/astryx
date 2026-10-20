@@ -491,9 +491,15 @@ const BOUNDED_FETCH = [
 
 /**
  * How long a failed install of a release is remembered, so offline runs do
- * not start npm again on every run (spec AST-081 FR2).
+ * not start npm again on every run (spec AST-081 FR2): 2 minutes after a
+ * first failure, so a passing registry hiccup is retried soon, and 10 minutes
+ * after a second failure in a row. A successful install forgets it.
+ * @param {number} failures the failures in a row, 1 or more
+ * @returns {number}
  */
-export const FAILED_INSTALL_TTL_MS = 10 * 60_000;
+export function failedInstallWaitMs(failures) {
+  return (failures >= 2 ? 10 : 2) * 60_000;
+}
 
 /**
  * The record of a failed install of `version`: a file in the release cache,
@@ -507,14 +513,28 @@ function failedRecordPath(version, cacheDir) {
 }
 
 /**
- * A failed install of `version` recorded within the last
- * FAILED_INSTALL_TTL_MS, or null.
+ * The recorded failed installs of `version` in a row, when the last was
+ * within its wait (failedInstallWaitMs), or null.
  * @param {string} version
  * @param {string} cacheDir
  * @param {number} [now]
- * @returns {{at: number, reason: string} | null}
+ * @returns {{at: number, reason: string, failures: number, waitMs: number} | null}
  */
 export function recentFailedInstall(version, cacheDir, now = Date.now()) {
+  const record = readFailedInstall(version, cacheDir);
+  if (!record) return null;
+  const waitMs = failedInstallWaitMs(record.failures);
+  const age = now - record.at;
+  return age >= 0 && age < waitMs ? {...record, waitMs} : null;
+}
+
+/**
+ * The record of failed installs of `version`, whatever its age, or null.
+ * @param {string} version
+ * @param {string} cacheDir
+ * @returns {{at: number, reason: string, failures: number} | null}
+ */
+function readFailedInstall(version, cacheDir) {
   const record = readJson(failedRecordPath(version, cacheDir));
   if (
     !record ||
@@ -523,8 +543,11 @@ export function recentFailedInstall(version, cacheDir, now = Date.now()) {
   ) {
     return null;
   }
-  const age = now - record.at;
-  return age >= 0 && age < FAILED_INSTALL_TTL_MS ? record : null;
+  const failures =
+    Number.isInteger(record.failures) && record.failures > 0
+      ? record.failures
+      : 1;
+  return {at: record.at, reason: record.reason, failures};
 }
 
 /**
@@ -541,8 +564,12 @@ function recordFailedInstall(version, cacheDir, reason) {
       return;
     }
     fs.mkdirSync(path.dirname(file), {recursive: true});
+    const failures = (readFailedInstall(version, cacheDir)?.failures ?? 0) + 1;
     const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, `${JSON.stringify({at: Date.now(), reason})}\n`);
+    fs.writeFileSync(
+      tmp,
+      `${JSON.stringify({at: Date.now(), reason, failures})}\n`,
+    );
     fs.renameSync(tmp, file);
   } catch {
     // An unwritable cache already answers for itself.
@@ -669,50 +696,129 @@ export function tryLock(lockDir, {now = Date.now()} = {}) {
 }
 
 /**
- * The name of the program running as `pid`, as `ps` or `tasklist` reports it
- * (lower case, without a folder or `.exe`), or null when it cannot be read.
+ * What the system says about the process `pid`: its arguments (exact from
+ * `/proc`; split on spaces from `ps` or PowerShell, so a path with a space in
+ * it never matches), and when it started (ms since the epoch). Read from `/proc` where there is one, else from `ps` (or
+ * PowerShell on Windows); null for what cannot be read.
  * @param {number} pid
- * @returns {string | null}
+ * @param {string} procRoot
+ * @returns {{argv: string[] | null, startedAt: number | null}}
  */
-function programNameOf(pid) {
-  const result =
-    process.platform === 'win32'
-      ? spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
-          encoding: 'utf-8',
-          windowsHide: true,
-          timeout: 5000,
-        })
-      : spawnSync('ps', ['-o', 'comm=', '-p', String(pid)], {
-          encoding: 'utf-8',
-          timeout: 5000,
-        });
-  if (result.status !== 0 || !result.stdout) return null;
-  const first =
-    process.platform === 'win32'
-      ? (/^"([^"]+)"/u.exec(result.stdout.trim())?.[1] ?? '')
-      : result.stdout.trim().split(/\r?\n/u)[0];
-  const name = path
-    .basename(first.trim())
-    .replace(/\.exe$/iu, '')
-    .toLowerCase();
-  return name || null;
+function processFactsOf(pid, procRoot) {
+  try {
+    const argv = fs
+      .readFileSync(path.join(procRoot, String(pid), 'cmdline'), 'utf-8')
+      .split('\u0000')
+      .filter(Boolean);
+    /** @type {number | null} */
+    let startedAt = null;
+    try {
+      // Field 22 of /proc/<pid>/stat: start time in clock ticks after boot
+      // (100 a second on Linux); /proc/stat's btime: boot, in seconds.
+      const stat = fs.readFileSync(
+        path.join(procRoot, String(pid), 'stat'),
+        'utf-8',
+      );
+      const ticks = Number(
+        stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19],
+      );
+      const btime = Number(
+        /^btime (\d+)$/mu.exec(
+          fs.readFileSync(path.join(procRoot, 'stat'), 'utf-8'),
+        )?.[1],
+      );
+      if (Number.isFinite(ticks) && Number.isFinite(btime)) {
+        startedAt = btime * 1000 + ticks * 10;
+      }
+    } catch {
+      // Start time unknown.
+    }
+    return {argv, startedAt};
+  } catch {
+    // No process table here.
+  }
+  if (process.platform === 'win32') {
+    const result = spawnSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if ($p) { [DateTimeOffset]::new($p.CreationDate).ToUnixTimeMilliseconds(); $p.CommandLine }`,
+      ],
+      {encoding: 'utf-8', windowsHide: true, timeout: 10_000},
+    );
+    const [started, ...rest] = (result.stdout ?? '').trim().split(/\r?\n/u);
+    const line = rest.join(' ').trim();
+    return {
+      argv: line
+        ? line.split(/\s+/u).map(arg => arg.replace(/^"(.*)"$/u, '$1'))
+        : null,
+      startedAt: Number(started) || null,
+    };
+  }
+  const result = spawnSync(
+    'ps',
+    ['-o', 'lstart=', '-o', 'args=', '-p', String(pid)],
+    {
+      encoding: 'utf-8',
+      timeout: 5000,
+    },
+  );
+  const line = (result.stdout ?? '').split(/\r?\n/u)[0] ?? '';
+  // `lstart` is a fixed 24-character date, such as `Tue Oct 20 03:52:54 2026`.
+  const startedAt = Date.parse(line.slice(0, 24));
+  const args = line.slice(24).trim();
+  return {
+    argv: args ? args.split(/\s+/u) : null,
+    startedAt: Number.isFinite(startedAt) ? startedAt : null,
+  };
+}
+
+/**
+ * Whether a process's arguments are this CLI's install of `version`, as
+ * runNpm starts it: the program (`argv[0]`) is npm, or node running npm's
+ * entry file `npm-cli.js` (`argv[1]`), each exactly by name, and the arguments
+ * include `install` and `@astryxdesign/cli@<version>`. A program that only has
+ * `npm` somewhere in its name or arguments is not.
+ * @param {string[]} argv
+ * @param {string} version
+ * @returns {boolean}
+ */
+export function isReleaseInstall(argv, version) {
+  const name = (/** @type {string | undefined} */ arg) =>
+    (arg ?? '')
+      .split(/[\\/]/u)
+      .pop()
+      ?.replace(/\.(?:exe|cmd)$/iu, '')
+      .toLowerCase() ?? '';
+  const program = name(argv[0]);
+  const npm =
+    program === 'npm' ||
+    (/^node(?:[-.\d]*)$/u.test(program) && name(argv[1]) === 'npm-cli.js');
+  return (
+    npm &&
+    argv.includes('install') &&
+    argv.includes(`@astryxdesign/cli@${version}`)
+  );
 }
 
 /**
  * End the npm process group a stale lock records, only when that process is
- * confirmed to be the install: on a computer with a process table
- * (`/proc`), its command line names npm; elsewhere, the lock is younger than
- * any install may take and `ps` (or `tasklist`) names node or npm. Anything
- * less certain is left alone, and the lock is simply taken over, since a
- * recorded process id can name an unrelated process once the install ended.
- * @param {string} lockDir
- * @param {{now?: number, procRoot?: string, nameOf?: (pid: number) => string | null}} [options]
- *   the clock, the process table's folder, and the name reader, for tests
+ * surely the install the lock was taken for: its command line is this CLI's
+ * install of the lock's release (isReleaseInstall), the lock is younger than
+ * any install may take, and the process started no earlier than the lock.
+ * Anything less certain is left alone, and the lock is simply taken over,
+ * since a recorded process id can name an unrelated process once the install
+ * ended.
+ * @param {string} lockDir a `.lock-<version>` folder
+ * @param {{now?: number, procRoot?: string, factsOf?: (pid: number) => {argv: string[] | null, startedAt: number | null}}} [options]
+ *   the clock, the process table's folder, and the fact reader, for tests
  * @returns {'ended' | 'left'} whether a process group was ended
  */
 export function endRecordedInstall(
   lockDir,
-  {now = Date.now(), procRoot = '/proc', nameOf = programNameOf} = {},
+  {now = Date.now(), procRoot = '/proc', factsOf} = {},
 ) {
   let pid;
   try {
@@ -721,25 +827,18 @@ export function endRecordedInstall(
     return 'left';
   }
   if (!Number.isInteger(pid) || pid <= 1 || !isAlive(pid)) return 'left';
-  /** @type {string | null} */
-  let cmdline = null;
-  try {
-    cmdline = fs.readFileSync(
-      path.join(procRoot, String(pid), 'cmdline'),
-      'utf-8',
-    );
-  } catch {
-    // No process table here.
+  const version = /^\.lock-(.+)$/u.exec(path.basename(lockDir))?.[1];
+  if (!version) return 'left';
+  const owner = readJson(path.join(lockDir, 'owner.json'));
+  const at = typeof owner?.at === 'number' ? owner.at : null;
+  if (at === null || !(now - at >= 0 && now - at < INSTALL_TIMEOUT_MS)) {
+    return 'left';
   }
-  if (cmdline !== null) {
-    if (!/npm/u.test(cmdline)) return 'left';
-  } else {
-    const owner = readJson(path.join(lockDir, 'owner.json'));
-    const age = typeof owner?.at === 'number' ? now - owner.at : Infinity;
-    if (!(age >= 0 && age < INSTALL_TIMEOUT_MS)) return 'left';
-    // `node`, `npm`, or a versioned name such as `node-22`.
-    if (!/^(?:node|npm)(?:[-.\d]*)$/u.test(nameOf(pid) ?? '')) return 'left';
-  }
+  const facts = (factsOf ?? (id => processFactsOf(id, procRoot)))(pid);
+  if (!facts.argv || !isReleaseInstall(facts.argv, version)) return 'left';
+  // Started before the lock was taken: an older process that reuses the id.
+  // A second's slack covers clocks that round.
+  if (facts.startedAt === null || facts.startedAt < at - 1000) return 'left';
   try {
     process.kill(process.platform === 'win32' ? pid : -pid, 'SIGKILL');
     return 'ended';
@@ -795,7 +894,13 @@ export function ensureRelease(version, options = {}) {
     return {version: String(version), reason: 'it is not a release version'};
   }
   const existing = cachedRelease(version, cacheDir);
-  if (existing) return existing;
+  if (existing) {
+    // Installed by now, by any copy: forget any failure.
+    if (readFailedInstall(version, cacheDir)) {
+      recordFailedInstall(version, cacheDir, null);
+    }
+    return existing;
+  }
   // A recent failed install is not retried: offline, every run would start
   // npm again and wait for it (FR2).
   const failed = recentFailedInstall(version, cacheDir);
@@ -803,7 +908,7 @@ export function ensureRelease(version, options = {}) {
     const minutes = Math.max(1, Math.round((Date.now() - failed.at) / 60_000));
     return {
       version,
-      reason: `${failed.reason}; last tried ${minutes} minute${minutes === 1 ? '' : 's'} ago, tried again after ${FAILED_INSTALL_TTL_MS / 60_000} minutes`,
+      reason: `${failed.reason}; last tried ${minutes} minute${minutes === 1 ? '' : 's'} ago, tried again after ${failed.waitMs / 60_000} minutes`,
     };
   }
   try {

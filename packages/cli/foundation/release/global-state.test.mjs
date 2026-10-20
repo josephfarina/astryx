@@ -10,6 +10,7 @@ import {
   CHECK_INTERVAL_MS,
   knownLatest,
   knownLatestRelease,
+  maybeFetchCore,
   maybeKeepAgentText,
   maybeStartCheck,
   readGlobalState,
@@ -123,6 +124,67 @@ describe('runCheck', () => {
 
   it('keeps the state in the per-user configuration folder', () => {
     expect(path.dirname(stateFile())).toBe(userConfigDir());
+  });
+});
+
+describe('maybeFetchCore', () => {
+  /** A release folder with the step, and no Core beside it. */
+  const release = () => {
+    const parent = tempDir('scope');
+    const root = path.join(parent, 'cli');
+    fs.mkdirSync(path.join(root, 'foundation', 'release'), {recursive: true});
+    fs.writeFileSync(
+      path.join(root, 'foundation', 'release', 'core-worker.mjs'),
+      '',
+    );
+    return {version: '0.8.0', root};
+  };
+
+  it("starts the step that installs this release's Core when none is beside it or cached, never in CI", () => {
+    /** @type {string[]} */
+    const started = [];
+    const start = (/** @type {string} */ worker) => started.push(worker);
+    const r = release();
+    const cacheDir = tempDir('cache');
+    expect(
+      maybeFetchCore({release: r, cacheDir, env: {CI: 'true'}, start}),
+    ).toBe(false);
+    expect(maybeFetchCore({release: r, cacheDir, env: {}, start})).toBe(true);
+    expect(started).toEqual([
+      path.join(r.root, 'foundation', 'release', 'core-worker.mjs'),
+    ]);
+    // A Core beside the CLI, as a door's package set carries: nothing to do.
+    const beside = path.join(path.dirname(r.root), 'core', 'package.json');
+    fs.mkdirSync(path.dirname(beside), {recursive: true});
+    fs.writeFileSync(
+      beside,
+      JSON.stringify({name: '@astryxdesign/core', version: '0.8.0'}),
+    );
+    expect(maybeFetchCore({release: r, cacheDir, env: {}, start})).toBe(false);
+  });
+
+  it('waits out a recent failure and an install under way', () => {
+    const start = () => {};
+    const r = release();
+    const cacheDir = tempDir('cache');
+    const releases = path.join(cacheDir, 'releases');
+    fs.mkdirSync(path.join(releases, '.lock-0.8.0'), {recursive: true});
+    expect(maybeFetchCore({release: r, cacheDir, env: {}, start})).toBe(false);
+    fs.rmSync(path.join(releases, '.lock-0.8.0'), {recursive: true});
+    fs.writeFileSync(
+      path.join(releases, '.failed-0.8.0.json'),
+      JSON.stringify({at: Date.now(), reason: 'offline', failures: 1}),
+    );
+    expect(maybeFetchCore({release: r, cacheDir, env: {}, start})).toBe(false);
+    fs.writeFileSync(
+      path.join(releases, '.failed-0.8.0.json'),
+      JSON.stringify({
+        at: Date.now() - 3 * 60_000,
+        reason: 'offline',
+        failures: 1,
+      }),
+    );
+    expect(maybeFetchCore({release: r, cacheDir, env: {}, start})).toBe(true);
   });
 });
 

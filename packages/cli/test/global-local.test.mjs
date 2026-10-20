@@ -302,7 +302,16 @@ describe.skipIf(!POSIX)(
         core: '9.0.1',
         copy: 'starting',
       });
-      expect(fs.existsSync(path.join(pc.astryxCache, 'releases'))).toBe(false);
+      // Nothing is installed for the project (the global copy's own Core
+      // step, G52, is the only thing that may touch the cache).
+      expect(
+        fs.existsSync(path.join(pc.astryxCache, 'releases', '9.0.1')),
+      ).toBe(false);
+      expect(
+        fs.existsSync(
+          path.join(pc.astryxCache, 'releases', '.failed-9.0.1.json'),
+        ),
+      ).toBe(false);
       // A copy equal to the project's Core prints no hint.
       const same = makeProject({core: '9.0.0'});
       expect(run(g.bin, ['--version'], {cwd: same, pc}).lines).toEqual([]);
@@ -1548,40 +1557,56 @@ describe.skipIf(!POSIX)(
       });
     });
 
-    it('G49 offline, a release that failed to install is not retried for ten minutes, by any copy sharing the cache', () => {
+    it('G49 offline, a release that failed to install is retried after 2 minutes, then after 10 once it fails again, by any copy sharing the cache; a success forgets it', () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
       const dir = makeProject({core: '9.0.3', brokenCli: '9.0.3'});
-      const first = run(g.bin, ['--version'], {cwd: dir, pc});
-      expect(first.lines.filter(l => l.includes('installing'))).toHaveLength(1);
       const record = path.join(
         pc.astryxCache,
         'releases',
         '.failed-9.0.3.json',
       );
-      expect(fs.existsSync(record)).toBe(true);
-      // The next run, and a run started from another copy, start no install.
+      const installs = (/** @type {{lines: string[]}} */ r) =>
+        r.lines.filter(l => l.includes('installing')).length;
+      /** Move the last failure `minutes` into the past. @param {number} minutes */
+      const age = minutes => {
+        const old = JSON.parse(fs.readFileSync(record, 'utf8'));
+        fs.writeFileSync(
+          record,
+          JSON.stringify({...old, at: old.at - minutes * 60_000}),
+        );
+      };
+      expect(installs(run(g.bin, ['--version'], {cwd: dir, pc}))).toBe(1);
+      expect(JSON.parse(fs.readFileSync(record, 'utf8')).failures).toBe(1);
+      // Within 2 minutes, from this copy or another, no install starts.
       const other = globalCli('npm', '9.0.1', {
         root: path.join(pc.home, 'other'),
       });
       for (const bin of [g.bin, other.bin]) {
         const again = run(bin, ['--version'], {cwd: dir, pc});
         expect(again.status).toBe(0);
-        expect(again.lines.filter(l => l.includes('installing'))).toEqual([]);
+        expect(installs(again)).toBe(0);
         expect(again.lines).toEqual([
           expect.stringMatching(
-            /^astryx: could not get Astryx 9\.0\.3 to match this project's Core \(.+; last tried 1 minute ago, tried again after 10 minutes\); answering with CLI 9\.0\.[01] instead$/u,
+            /^astryx: could not get Astryx 9\.0\.3 to match this project's Core \(.+; last tried 1 minute ago, tried again after 2 minutes\); answering with CLI 9\.0\.[01] instead$/u,
           ),
         ]);
       }
-      // After ten minutes it tries again.
-      const old = JSON.parse(fs.readFileSync(record, 'utf8'));
-      fs.writeFileSync(
-        record,
-        JSON.stringify({...old, at: old.at - 11 * 60_000}),
-      );
-      const later = run(g.bin, ['--version'], {cwd: dir, pc});
-      expect(later.lines.filter(l => l.includes('installing'))).toHaveLength(1);
+      // After 2 minutes it tries again; a second failure waits 10.
+      age(3);
+      expect(installs(run(g.bin, ['--version'], {cwd: dir, pc}))).toBe(1);
+      expect(JSON.parse(fs.readFileSync(record, 'utf8')).failures).toBe(2);
+      age(3);
+      const waiting = run(g.bin, ['--version'], {cwd: dir, pc});
+      expect(installs(waiting)).toBe(0);
+      expect(waiting.lines[0]).toMatch(/tried again after 10 minutes\)/u);
+      age(8);
+      expect(installs(run(g.bin, ['--version'], {cwd: dir, pc}))).toBe(1);
+      // A success forgets the record.
+      seedPackedRelease(pc.astryxCache, '9.0.3');
+      age(11);
+      expect(run(g.bin, ['--version'], {cwd: dir, pc}).stdout).toBe('9.0.3');
+      expect(fs.existsSync(record)).toBe(false);
     });
 
     it('G50 a global copy in a Bun global folder moved with BUN_INSTALL: global only while BUN_INSTALL names it; an app under a folder named install/global is not', () => {
@@ -1680,6 +1705,105 @@ describe.skipIf(!POSIX)(
         fs.existsSync(path.join(pc.home, '.config', 'astryx', 'state.json')),
       ).toBe(false);
     });
+
+    it('G52 the global copy installs its own Core into the cache in the background, never in CI and never blocking a command; offline, the failure waits out the backoff', async () => {
+      const pc = computer();
+      const g = globalCli('npm', '9.0.0', {root: pc.home});
+      const empty = tempDir('empty');
+      const failed = path.join(
+        pc.astryxCache,
+        'releases',
+        '.failed-9.0.0.json',
+      );
+      // In CI, no download starts.
+      expect(
+        run(g.bin, ['--version'], {cwd: empty, pc, env: {CI: 'true'}}).status,
+      ).toBe(0);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      expect(fs.existsSync(failed)).toBe(false);
+      // Otherwise the detached step tries it; the run itself returns at once.
+      const started = Date.now();
+      const r = run(g.bin, ['--version'], {cwd: empty, pc});
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe('9.0.0');
+      expect(Date.now() - started).toBeLessThan(15_000);
+      // Offline here: the step records the failure for the backoff.
+      for (let i = 0; i < 100 && !fs.existsSync(failed); i++) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      expect(fs.existsSync(failed)).toBe(true);
+      // A cached release means nothing more to do.
+      fs.rmSync(failed);
+      seedPackedRelease(pc.astryxCache, '9.0.0');
+      expect(run(g.bin, ['--version'], {cwd: empty, pc}).status).toBe(0);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      expect(fs.existsSync(failed)).toBe(false);
+    }, 60_000);
+
+    it("G53 pnpm's global virtual store: a project's own CLI kept in the store's links folder is not global; one a pnpm global folder links to is", () => {
+      const pc = computer();
+      const home = path.join(pc.home, '.local', 'share', 'pnpm');
+      const where = {
+        home: pc.home,
+        platform: /** @type {const} */ ('linux'),
+        env: {},
+      };
+      /** A CLI in the store's links folder. @param {string} hash */
+      const inStore = hash =>
+        placeCli(
+          path.join(
+            home,
+            'store',
+            'v11',
+            'links',
+            '@astryxdesign',
+            'cli',
+            '9.0.0',
+            hash,
+            'node_modules',
+            '@astryxdesign',
+            'cli',
+          ),
+          '9.0.0',
+        );
+      // A project links its own CLI from the store: not global, so no check
+      // and no skill for each project run.
+      const projectCli = inStore('p1');
+      const app = path.join(pc.home, 'app');
+      writeJson(path.join(app, 'package.json'), {
+        name: 'app',
+        dependencies: {'@astryxdesign/cli': '9.0.0'},
+      });
+      fs.mkdirSync(path.join(app, 'node_modules', '@astryxdesign'), {
+        recursive: true,
+      });
+      fs.symlinkSync(
+        projectCli.dir,
+        path.join(app, 'node_modules', '@astryxdesign', 'cli'),
+      );
+      expect(isGlobalCopy(projectCli.dir, pc.astryxCache, where)).toBe(false);
+      // `pnpm add -g` links one from a global folder: global.
+      const globalCli11 = inStore('g1');
+      const folder = path.join(home, 'global', 'v11', 'a1');
+      writeJson(path.join(folder, 'package.json'), {
+        dependencies: {'@astryxdesign/cli': '9.0.0'},
+      });
+      fs.mkdirSync(path.join(folder, 'node_modules', '@astryxdesign'), {
+        recursive: true,
+      });
+      fs.symlinkSync(
+        globalCli11.dir,
+        path.join(folder, 'node_modules', '@astryxdesign', 'cli'),
+      );
+      expect(isGlobalCopy(globalCli11.dir, pc.astryxCache, where)).toBe(true);
+      expect(isGlobalCopy(projectCli.dir, pc.astryxCache, where)).toBe(false);
+      // Run in the project, its own CLI starts no check and writes no skill.
+      const r = run(projectCli.bin, ['--version'], {cwd: app, pc});
+      expect(r.status).toBe(0);
+      expect(
+        fs.existsSync(path.join(pc.home, '.agents', 'skills', 'astryx')),
+      ).toBe(false);
+    });
   },
 );
 
@@ -1688,6 +1812,6 @@ it('names every row of the table exactly once', () => {
   const rows = [
     ...text.matchAll(/^\s+it(?:\.skipIf\([^)]*\)\()?\(?\s*['"](G\d+) /gmu),
   ].map(m => m[1]);
-  expect(rows).toEqual(Array.from({length: 51}, (_, i) => `G${i + 1}`));
+  expect(rows).toEqual(Array.from({length: 53}, (_, i) => `G${i + 1}`));
   expect(os.EOL).toBeTypeOf('string');
 });

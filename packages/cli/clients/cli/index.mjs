@@ -16,11 +16,14 @@ import {Command, Option} from 'commander';
 import {fileURLToPath} from 'node:url';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import {formatCliCommand, getCliInvocation} from '../../foundation/env/package-manager.mjs';
+import {formatCliCommand, getCliInvocation, getRunPrefix} from '../../foundation/env/package-manager.mjs';
 import {hasRecordedProject} from '../../foundation/env/cli-command.mjs';
 import {isOutsideProject} from '../../foundation/env/project-scope.mjs';
 import {API_VERSION, setJsonMode} from '../../foundation/response/json.mjs';
-import {answeredBy} from '../../foundation/release/run-context.mjs';
+import {answeredBy, runChoice} from '../../foundation/release/run-context.mjs';
+import {addCliCommand} from '../../foundation/release/notices.mjs';
+import {projectRootOf} from '../../foundation/release/choose.mjs';
+import {readReleaseFacts} from '../../foundation/release/project.mjs';
 import {buildManifest} from './lib/manifest.mjs';
 import {cliError} from './lib/cli-error.mjs';
 import {emit, section, text, records} from './formatters/index.mjs';
@@ -636,6 +639,17 @@ export async function createProgram() {
       // renders the correct form for THIS project — an integration's cliCommand,
       // scoped `npx @astryxdesign/cli` one-off, or `<pm> astryx` when installed —
       // never the bare `npx astryx` footgun.
+      // A project with no CLI of its own, answered by another release than its
+      // Core's: add the CLI at Core's version first, as the daily hint says,
+      // then run that CLI's init (spec AST-081 FR2).
+      const choice = runChoice(cwd);
+      if (choice.copy === 'starting' && choice.coreVersion && choice.coreVersion !== choice.version) {
+        const root = projectRootOf(readReleaseFacts(cwd)) ?? cwd;
+        console.error(
+          setupNudge(`${getRunPrefix(root)} astryx`, {before: addCliCommand(root, choice.coreVersion)}).trimEnd(),
+        );
+        return;
+      }
       console.error(setupNudge(getCliInvocation(cwd)).trimEnd());
     } catch {
       // Never let the nudge break a command.

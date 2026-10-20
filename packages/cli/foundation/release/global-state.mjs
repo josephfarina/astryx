@@ -32,11 +32,18 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {resolveLatestRelease, tryLock, isReleaseVersion} from './cache.mjs';
+import {
+  cachedRelease,
+  isReleaseVersion,
+  recentFailedInstall,
+  releasesDir,
+  resolveLatestRelease,
+  tryLock,
+} from './cache.mjs';
 import {readJson} from './project.mjs';
 import {userConfigDir} from '../env/user-dirs.mjs';
 import {computerAgentTextSettings} from '../env/user-settings.mjs';
-import {updateNoticesOff} from './update-notice-env.mjs';
+import {isCi, updateNoticesOff} from './update-notice-env.mjs';
 
 /** How often a check may start: once a day, as `gh` and update-notifier do. */
 export const CHECK_INTERVAL_MS = 24 * 60 * 60_000;
@@ -238,6 +245,52 @@ export function maybeKeepAgentText({
   // An attempt that cannot be recorded would start again on every run.
   if (readGlobalState(stateDir).agentText?.attemptAt !== now) return false;
   start(worker, stateDir);
+  return true;
+}
+
+/**
+ * Start the background step that installs this release's Core into the
+ * per-user cache, so commands that read Core work offline outside a project
+ * after one online run (spec AST-081 FR3, FR6): when the global copy carries
+ * no Core beside it and none is cached for its release, no install of it is
+ * under way, no recent attempt failed (the release cache's backoff), and
+ * `CI` is not set. It never blocks a command, prints nothing, and a failure
+ * is retried by a later run's step. Returns whether it was started.
+ * @param {{release: {version: string, root: string}, cacheDir: string, env?: NodeJS.ProcessEnv, start?: typeof startWorker}} options
+ * @returns {boolean}
+ */
+export function maybeFetchCore({
+  release,
+  cacheDir,
+  env = process.env,
+  start = startWorker,
+}) {
+  if (isCi(env) || !isReleaseVersion(release.version)) return false;
+  const beside = readJson(
+    path.join(release.root, '..', 'core', 'package.json'),
+  );
+  if (
+    beside?.name === '@astryxdesign/core' &&
+    beside.version === release.version
+  ) {
+    return false;
+  }
+  if (cachedRelease(release.version, cacheDir)) return false;
+  if (recentFailedInstall(release.version, cacheDir)) return false;
+  if (
+    fs.existsSync(path.join(releasesDir(cacheDir), `.lock-${release.version}`))
+  ) {
+    return false;
+  }
+  const worker = path.join(
+    release.root,
+    'foundation',
+    'release',
+    'core-worker.mjs',
+  );
+  // A release without the step predates it.
+  if (!fs.existsSync(worker)) return false;
+  start(worker, cacheDir);
   return true;
 }
 
