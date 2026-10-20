@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-latest, ubuntu-latest]
+        os: [macos-14, macos-15-intel]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     permissions:
