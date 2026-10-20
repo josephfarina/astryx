@@ -4,12 +4,16 @@
 
 import {isOutsideProject} from '../../foundation/env/project-scope.mjs';
 import {answeredBy} from '../../foundation/release/run-context.mjs';
-import {knownLatestRelease} from '../../foundation/release/global-state.mjs';
+import {
+  knownLatestRelease,
+  stateLockHolder,
+} from '../../foundation/release/global-state.mjs';
 import {
   addCliCommand,
   alignCliAndCore,
   globalBehind,
   globalUpgradeCommand,
+  lastNoticeSkip,
   projectLag,
 } from '../../foundation/release/notices.mjs';
 import {isGlobalCopy, projectRootOf} from '../../foundation/release/choose.mjs';
@@ -300,13 +304,15 @@ export {displayHomePath};
  * command that upgrades it.
  * @param {string} cwd
  * @param {{project: boolean}} options
- * @returns {{answeredBy: {cli: string, core: string | null, copy: string}, latest: string | null, globalBehind: ReturnType<typeof globalBehind> | null, projectLag: ReturnType<typeof projectLag> | null, searchPathCommands: Array<import('../../foundation/env/search-path.mjs').SearchPathCommand & {upgrade: string | null}>}}
+ * @returns {{answeredBy: {cli: string, core: string | null, copy: string}, latest: string | null, globalBehind: ReturnType<typeof globalBehind> | null, projectLag: ReturnType<typeof projectLag> | null, lastNoticeSkip: ReturnType<typeof lastNoticeSkip>, stateLock: ReturnType<typeof stateLockHolder>, searchPathCommands: Array<import('../../foundation/env/search-path.mjs').SearchPathCommand & {upgrade: string | null}>}}
  */
 export function releaseFacts(cwd, {project}) {
   const answered = answeredBy(cwd);
   return {
     answeredBy: answered,
     latest: knownLatestRelease(),
+    lastNoticeSkip: lastNoticeSkip(),
+    stateLock: stateLockHolder(),
     globalBehind:
       !project && isGlobalCopy(CLI_ROOT)
         ? globalBehind({self: {version: answered.cli, root: CLI_ROOT}})

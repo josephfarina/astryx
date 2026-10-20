@@ -313,7 +313,11 @@ function linkStateOf(at, folder) {
     return 'absent';
   }
   if (stat.isSymbolicLink()) {
-    if (!pointsAt(at, folder)) return 'foreign';
+    const leads = pointsAt(at, folder);
+    if (leads == null) return 'foreign';
+    // A link the system cannot follow to the folder is broken, whatever its
+    // text says.
+    if (leads === 'names') return 'dangling';
     return fs.existsSync(path.join(folder, 'SKILL.md')) ? 'linked' : 'dangling';
   }
   if (!stat.isDirectory()) return 'foreign';
@@ -349,17 +353,42 @@ function copyStateOf(at, expected) {
 }
 
 /**
- * Whether the link at `at` points at `folder`.
+ * Where the link at `at` leads `folder`'s way, as the system follows it: a
+ * relative target resolves from the folder the link really sits in, which
+ * differs from its path when a folder above it is itself a link (such as
+ * `~/.claude` linked to a dotfiles folder). `reaches`: the system reaches
+ * `folder` (which may be missing). `names`: only the target's text, read from
+ * the link's path, names `folder`, as a link an earlier release made under a
+ * linked folder does; the system cannot follow it. Otherwise null.
  * @param {string} at
  * @param {string} folder
- * @returns {boolean}
+ * @returns {'reaches' | 'names' | null}
  */
 function pointsAt(at, folder) {
   try {
-    const target = path.resolve(path.dirname(at), fs.readlinkSync(at));
-    return samePath(target.replace(/[\\/]+$/u, ''), folder);
+    const text = fs.readlinkSync(at);
+    const followed = path.resolve(realPath(path.dirname(at)), text);
+    const wanted = realPath(folder);
+    if (samePath(followed.replace(/[\\/]+$/u, ''), wanted)) return 'reaches';
+    const named = path.resolve(path.dirname(at), text);
+    return samePath(named.replace(/[\\/]+$/u, ''), folder) ? 'names' : null;
   } catch {
-    return false;
+    return null;
+  }
+}
+
+/**
+ * `p` with every link in it resolved, as far as it exists: a missing tail is
+ * kept as written.
+ * @param {string} p
+ * @returns {string}
+ */
+function realPath(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    const parent = path.dirname(p);
+    return parent === p ? p : path.join(realPath(parent), path.basename(p));
   }
 }
 
@@ -439,6 +468,10 @@ function removeFile(file) {
 /**
  * Link `at` to `folder`: a folder symlink with a relative target, which
  * survives a moved or synced home folder, or a junction (absolute) on Windows.
+ * The target is relative to the folder the link really sits in, because the
+ * system resolves it from there: with `~/.claude` linked to
+ * `~/dotfiles/.claude`, a target worked out from `~/.claude/skills` would
+ * dangle. With no common base between the two, the target is absolute.
  * @param {string} at
  * @param {string} folder
  */
@@ -446,9 +479,11 @@ function makeLink(at, folder) {
   fs.mkdirSync(path.dirname(at), {recursive: true});
   if (process.platform === 'win32') {
     fs.symlinkSync(folder, at, 'junction');
-  } else {
-    fs.symlinkSync(path.relative(path.dirname(at), folder), at, 'dir');
+    return;
   }
+  const realFolder = fs.realpathSync(folder);
+  const relative = path.relative(fs.realpathSync(path.dirname(at)), realFolder);
+  fs.symlinkSync(path.isAbsolute(relative) ? realFolder : relative, at, 'dir');
 }
 
 /**
@@ -512,11 +547,15 @@ export function writeComputerAgentText({home = os.homedir(), command} = {}) {
       rows.push(writeCopy(at, expected));
       continue;
     }
-    if (linkState === 'foreign' || linkState === 'dangling') {
+    if (linkState === 'foreign') {
       rows.push({path: at, action: 'kept', reason: 'not-astryx'});
       continue;
     }
     if (linkState === 'differs') removeFile(path.join(at, 'SKILL.md'));
+    // The skill folder exists now, so a link still dangling here is one
+    // whose target the system resolves from a linked folder above it: an
+    // Astryx link, remade so that it resolves.
+    if (linkState === 'dangling') fs.unlinkSync(at);
     try {
       makeLink(at, folder);
       links.push(at);

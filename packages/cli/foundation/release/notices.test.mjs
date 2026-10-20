@@ -8,6 +8,7 @@
 
 import {afterEach, describe, expect, it} from 'vitest';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {spawn} from 'node:child_process';
 import {
@@ -19,10 +20,17 @@ import {
   oldGlobalCommand,
   oldGlobalLines,
   projectLag,
+  lastNoticeSkip,
+  recordNoticeSkip,
   takeNotice,
   upgradeLine,
 } from './notices.mjs';
-import {readGlobalState, updateGlobalState} from './global-state.mjs';
+import {
+  readGlobalState,
+  stateLockHolder,
+  tryStateLock,
+  updateGlobalState,
+} from './global-state.mjs';
 import {
   cleanupFixtures,
   installCore,
@@ -127,6 +135,59 @@ describe('takeNotice', () => {
     fs.writeFileSync(file, '');
     expect(takeNotice('a', {stateDir: file, now: 1})).toBe(false);
   });
+});
+
+describe('why a notice did not print (diagnostic state)', () => {
+  it('records an already-shown skip, at most once an hour for the same reason', () => {
+    const stateDir = tempDir('state');
+    expect(takeNotice('global', {stateDir, now: 1000})).toBe(true);
+    expect(takeNotice('global', {stateDir, now: 2000})).toBe(false);
+    expect(readGlobalState(stateDir).noticeSkips).toEqual({
+      global: {reason: 'already-shown', at: 2000},
+    });
+    // Within the hour: not rewritten.
+    expect(takeNotice('global', {stateDir, now: 3000})).toBe(false);
+    expect(readGlobalState(stateDir).noticeSkips?.global.at).toBe(2000);
+    // After it: recorded again.
+    expect(takeNotice('global', {stateDir, now: 2000 + 60 * 60_000})).toBe(
+      false,
+    );
+    expect(readGlobalState(stateDir).noticeSkips?.global.at).toBe(
+      2000 + 60 * 60_000,
+    );
+    expect(lastNoticeSkip({stateDir})).toEqual({
+      key: 'global',
+      reason: 'already-shown',
+      at: 2000 + 60 * 60_000,
+    });
+  });
+
+  it('says a held lock timed out, and who holds it', () => {
+    const stateDir = tempDir('state');
+    const lockDir = path.join(stateDir, '.lock-state');
+    fs.mkdirSync(lockDir, {recursive: true});
+    fs.writeFileSync(
+      path.join(lockDir, 'owner.json'),
+      JSON.stringify({pid: process.pid, host: os.hostname(), at: Date.now()}),
+    );
+    expect(tryStateLock(stateDir, () => 'ran')).toEqual({
+      ran: false,
+      reason: 'lock-timeout',
+    });
+    expect(stateLockHolder(stateDir)).toMatchObject({pid: process.pid});
+    fs.rmSync(lockDir, {recursive: true});
+    expect(stateLockHolder(stateDir)).toBeNull();
+    // Nothing is recorded where no state file exists yet.
+    recordNoticeSkip('global', 'lock-timeout', {stateDir, now: 4});
+    expect(fs.existsSync(path.join(stateDir, 'state.json'))).toBe(false);
+    updateGlobalState({latest: '0.7.1'}, stateDir);
+    recordNoticeSkip('global', 'lock-timeout', {stateDir, now: 5});
+    expect(lastNoticeSkip({stateDir})).toEqual({
+      key: 'global',
+      reason: 'lock-timeout',
+      at: 5,
+    });
+  }, 10_000);
 });
 
 describe('the lines', () => {
@@ -344,7 +405,25 @@ describe.skipIf(process.platform === 'win32')('noticeLines', () => {
       `To upgrade, run: npm i -g --prefix ${prefix} @astryxdesign/cli@latest`,
     ]);
     expect(noticeLines({...input, now: 20})).toEqual([]);
+    expect(lastNoticeSkip({stateDir: input.stateDir})).toEqual({
+      key: 'global',
+      reason: 'already-shown',
+      at: 20,
+    });
     expect(noticeLines({...input, now: 10 + DAY})).toHaveLength(2);
+  });
+
+  it('records that nothing newer was known when the global copy is current', () => {
+    const {global: _global, ...input} = {
+      ...outside(),
+      stateDir: checked('0.7.2'),
+    };
+    expect(noticeLines({...input, now: 30})).toEqual([]);
+    expect(lastNoticeSkip({stateDir: input.stateDir})).toEqual({
+      key: 'global',
+      reason: 'no-newer',
+      at: 30,
+    });
   });
 
   it('prints nothing with --json, in CI, or with NO_UPDATE_NOTIFIER, and keeps the notice for later', () => {

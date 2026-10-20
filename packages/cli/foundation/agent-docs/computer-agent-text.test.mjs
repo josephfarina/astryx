@@ -209,6 +209,86 @@ describe('links and the copy', () => {
     expect(fs.existsSync(copy)).toBe(false);
   });
 
+  it.skipIf(process.platform === 'win32')(
+    'links from a ~/.claude that is itself a link to a dotfiles folder, with a target that resolves',
+    () => {
+      const dotfiles = path.join(home, 'dotfiles', '.claude');
+      fs.mkdirSync(dotfiles, {recursive: true});
+      fs.symlinkSync(dotfiles, path.join(home, '.claude'), 'dir');
+
+      const {rows, links} = writeComputerAgentText({home, command: 'astryx'});
+
+      expect(rows).toContainEqual({path: CLAUDE(), action: 'linked'});
+      // The system resolves the link from the dotfiles folder, and it reaches
+      // the skill folder.
+      expect(isLinkToFolder(CLAUDE())).toBe(true);
+      expect(fs.readFileSync(path.join(CLAUDE(), 'SKILL.md'), 'utf8')).toBe(
+        fs.readFileSync(FILE(), 'utf8'),
+      );
+      expect(
+        inspectComputerAgentText({home, command: 'astryx', links}),
+      ).toContainEqual({
+        path: CLAUDE(),
+        state: 'linked',
+        link: true,
+      });
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'reports a link the system cannot follow as dangling, even when its text names the folder from the path',
+    () => {
+      const dotfiles = path.join(home, 'dotfiles', '.claude');
+      fs.mkdirSync(path.join(dotfiles, 'skills'), {recursive: true});
+      fs.symlinkSync(dotfiles, path.join(home, '.claude'), 'dir');
+      writeComputerAgentText({home, command: 'astryx'});
+      // A link as 0.7.x wrote it: relative to ~/.claude/skills, which the
+      // system reads from ~/dotfiles/.claude/skills, so it dangles.
+      fs.rmSync(CLAUDE());
+      fs.symlinkSync(
+        path.relative(path.dirname(CLAUDE()), FOLDER()),
+        CLAUDE(),
+        'dir',
+      );
+      expect(fs.existsSync(path.join(CLAUDE(), 'SKILL.md'))).toBe(false);
+
+      const rows = inspectComputerAgentText({
+        home,
+        command: 'astryx',
+        links: [CLAUDE()],
+      });
+      expect(rows.find(row => row.path === CLAUDE())?.state).toBe('dangling');
+      // init --user remakes it so that it resolves.
+      expect(
+        writeComputerAgentText({home, command: 'astryx'}).rows,
+      ).toContainEqual({
+        path: CLAUDE(),
+        action: 'linked',
+      });
+      expect(isLinkToFolder(CLAUDE())).toBe(true);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'writes the managed copy into a ~/.continue that is itself a link',
+    () => {
+      const real = path.join(home, 'dotfiles', '.continue');
+      fs.mkdirSync(real, {recursive: true});
+      fs.symlinkSync(real, path.join(home, '.continue'), 'dir');
+      const copy = path.join(home, '.continue', 'skills', 'astryx');
+
+      const {rows} = writeComputerAgentText({home, command: 'astryx'});
+
+      expect(rows).toContainEqual({path: copy, action: 'written'});
+      expect(
+        fs.readFileSync(
+          path.join(real, 'skills', 'astryx', 'SKILL.md'),
+          'utf8',
+        ),
+      ).toBe(fs.readFileSync(FILE(), 'utf8'));
+    },
+  );
+
   it('reports a link whose folder is missing as dangling', () => {
     const {links} = writeComputerAgentText({home, command: 'astryx'});
     fs.rmSync(FOLDER(), {recursive: true});

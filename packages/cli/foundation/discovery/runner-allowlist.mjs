@@ -47,5 +47,7 @@ export const RUNNER_COMMAND_ALLOWLIST = Object.freeze({
       'compares running the CLI with npx to installing it, and is found by searching for that command',
     'packages/cli/assets/docs/tree/install-once.doc.mjs':
       'names a pinned release, `npx @astryxdesign/cli@<version>`, which answers as that version',
+    'packages/cli/clients/cli/commands/upgrade.doc.mjs':
+      'quotes the command upgrade prints when the CLI is older than Core, pinned to the matching release',
   }),
 });

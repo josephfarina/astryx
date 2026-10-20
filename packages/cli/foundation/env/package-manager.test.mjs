@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 import {describe, it, expect, afterEach, vi} from 'vitest';
+import {spawnSync} from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -14,12 +15,33 @@ import {
   guessCliInvocation,
   formatCliCommand,
   prefixCliCommands,
+  quoteCommandArgument,
+  commandInFolder,
 } from './package-manager.mjs';
 import {recordDeclaredCliCommands, runWithCliDoor} from './cli-command.mjs';
 import {CLI_VERSION} from '../../test-utils/release-fixtures.mjs';
 
 let tmpDir;
 const ORIGINAL_ARGV1 = process.argv[1];
+
+/** Prints, as JSON, the folder a command ran in and the arguments it got. */
+const PRINT_RUN =
+  'process.stdout.write(JSON.stringify({cwd: process.cwd(), argv: process.argv.slice(1)}))';
+
+/** PowerShell, when it is on the PATH: printed commands target it on Windows. */
+const PWSH = (process.env.PATH ?? '')
+  .split(path.delimiter)
+  .flatMap(dir => ['pwsh', 'pwsh.exe'].map(name => path.join(dir, name)))
+  .find(file => isFile(file));
+
+/** @param {string} file */
+function isFile(file) {
+  try {
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
 
 afterEach(() => {
   if (tmpDir) {
@@ -717,5 +739,159 @@ describe('prefixCliCommands', () => {
 
   it('changes nothing when the stem is the bare bin', () => {
     expect(prefixCliCommands('`astryx docs`', 'astryx')).toBe('`astryx docs`');
+  });
+});
+
+describe('quoteCommandArgument', () => {
+  it('leaves a plain value bare', () => {
+    for (const platform of ['linux', 'darwin', 'win32']) {
+      expect(quoteCommandArgument('0.7.1', platform)).toBe('0.7.1');
+      expect(quoteCommandArgument('@acme/widgets', platform)).toBe(
+        '@acme/widgets',
+      );
+      expect(quoteCommandArgument('/home/me/app/src', platform)).toBe(
+        '/home/me/app/src',
+      );
+    }
+  });
+
+  it('single-quotes for a POSIX shell, so $, backticks and double quotes stay literal', () => {
+    expect(quoteCommandArgument('/tmp/my app/src', 'linux')).toBe(
+      "'/tmp/my app/src'",
+    );
+    expect(quoteCommandArgument('/tmp/cost $5/src', 'darwin')).toBe(
+      "'/tmp/cost $5/src'",
+    );
+    expect(quoteCommandArgument('a`id`"b"!', 'linux')).toBe('\'a`id`"b"!\'');
+    expect(quoteCommandArgument("it's", 'linux')).toBe("'it'\\''s'");
+    expect(quoteCommandArgument('C:\\app', 'linux')).toBe("'C:\\app'");
+    expect(quoteCommandArgument('', 'linux')).toBe("''");
+  });
+
+  it('keeps a Windows drive path bare', () => {
+    expect(quoteCommandArgument('C:\\Users\\me\\app\\src', 'win32')).toBe(
+      'C:\\Users\\me\\app\\src',
+    );
+  });
+
+  // Windows output targets PowerShell, not cmd.exe: PowerShell reads a
+  // single-quoted value literally, `$`, backticks, `%` and `!` included.
+  it('single-quotes for PowerShell on Windows, doubling an embedded quote', () => {
+    expect(quoteCommandArgument('C:\\Users\\Jo Smith\\app\\src', 'win32')).toBe(
+      "'C:\\Users\\Jo Smith\\app\\src'",
+    );
+    expect(quoteCommandArgument('C:\\cost $5 %x% !y\\src', 'win32')).toBe(
+      "'C:\\cost $5 %x% !y\\src'",
+    );
+    expect(quoteCommandArgument('C:\\it\'s `x` "q"', 'win32')).toBe(
+      "'C:\\it''s `x` \"q\"'",
+    );
+    // PowerShell also ends a single-quoted string at ‘ ’ ‚ and ‛.
+    expect(
+      quoteCommandArgument('C:\\Users\\jo\\OneDrive - Macy’s\\app', 'win32'),
+    ).toBe("'C:\\Users\\jo\\OneDrive - Macy’’s\\app'");
+    expect(quoteCommandArgument('‘a’ ‚b‛', 'win32')).toBe("'‘‘a’’ ‚‚b‛‛'");
+    // A POSIX shell reads them literally inside single quotes.
+    expect(quoteCommandArgument('/home/jo/Macy’s app', 'linux')).toBe(
+      "'/home/jo/Macy’s app'",
+    );
+  });
+});
+
+describe('commandInFolder', () => {
+  it('enters the folder, then runs the command only if that worked, in a POSIX shell', () => {
+    expect(commandInFolder('/tmp/my app', 'npx x', 'linux')).toBe(
+      "cd '/tmp/my app' && npx x",
+    );
+    expect(commandInFolder('/srv/app', 'npx x', 'darwin')).toBe(
+      'cd /srv/app && npx x',
+    );
+  });
+
+  it('enters the folder literally and stops if it cannot, in PowerShell', () => {
+    expect(commandInFolder('C:\\a[1] b', 'npx x', 'win32')).toBe(
+      "cd -LiteralPath 'C:\\a[1] b' -ErrorAction Stop; npx x",
+    );
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'runs in the folder with every argument unchanged, pasted into /bin/sh elsewhere',
+    () => {
+      const root = makeTmpDir();
+      const project = path.join(root, 'it\'s Macy’s ‘q’ $5 %x% !y `z` "q" [1]');
+      fs.mkdirSync(project);
+      const args = [path.join(project, 'src'), 'a$b c', "it's", '@scope/pkg@1'];
+      const command = commandInFolder(
+        project,
+        ['npx', ...args.map(arg => quoteCommandArgument(arg, 'linux'))].join(
+          ' ',
+        ),
+        'linux',
+      );
+      const ran = spawnSync(
+        '/bin/sh',
+        [
+          '-c',
+          `npx() { "$0" -e '${PRINT_RUN}' -- "$@"; }; ${command}`,
+          process.execPath,
+        ],
+        {cwd: root, encoding: 'utf8'},
+      );
+
+      expect(ran.status, ran.stderr).toBe(0);
+      expect(JSON.parse(ran.stdout)).toEqual({
+        cwd: fs.realpathSync(project),
+        argv: args,
+      });
+    },
+  );
+
+  describe.runIf(PWSH)('in PowerShell, where it is installed', () => {
+    it('runs in the folder with every argument unchanged', () => {
+      const root = makeTmpDir();
+      const project = path.join(root, 'it\'s Macy’s ‘q’ $5 %x% !y `z` "q" [1]');
+      fs.mkdirSync(project);
+      const args = [path.join(project, 'src'), 'a$b c', "it's", '@scope/pkg@1'];
+      const command = commandInFolder(
+        project,
+        ['npx', ...args.map(arg => quoteCommandArgument(arg, 'win32'))].join(
+          ' ',
+        ),
+        'win32',
+      );
+      const npx = `function npx { & ${quoteCommandArgument(process.execPath, 'win32')} -e '${PRINT_RUN}' -- @args }`;
+      const ran = spawnSync(
+        /** @type {string} */ (PWSH),
+        ['-NoProfile', '-NonInteractive', '-Command', `${npx}; ${command}`],
+        {cwd: root, encoding: 'utf8'},
+      );
+
+      expect(ran.status, ran.stderr).toBe(0);
+      expect(JSON.parse(ran.stdout)).toEqual({
+        cwd: fs.realpathSync(project),
+        argv: args,
+      });
+    });
+
+    it('stops when the folder cannot be entered', () => {
+      const root = makeTmpDir();
+      const command = commandInFolder(
+        path.join(root, 'missing'),
+        'npx',
+        'win32',
+      );
+      const ran = spawnSync(
+        /** @type {string} */ (PWSH),
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `function npx { 'RAN' }; ${command}`,
+        ],
+        {cwd: root, encoding: 'utf8'},
+      );
+
+      expect(ran.stdout).not.toContain('RAN');
+    });
   });
 });

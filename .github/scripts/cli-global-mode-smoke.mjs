@@ -989,10 +989,15 @@ async function main() {
         fs.realpathSync.native(PREFIX),
       ]),
     ].map(p => (/\s/.test(p) ? JSON.stringify(p) : p));
-    const notice = noticeOf(a);
+    // The check the first run starts can finish before that run exits, so
+    // the pair prints on whichever of the two comes first: exactly one of
+    // them prints it.
+    const pairs = [kick, a].filter(r => noticeOf(r).length > 0);
+    const notice = pairs.length === 1 ? noticeOf(pairs[0]) : [];
     ok(
       'update: one two-line notice after the first text run, upgrading into the install prefix; none in JSON, in CI, or after',
-      notice.length === 2 &&
+      pairs.length === 1 &&
+        notice.length === 2 &&
         notice[0] ===
           `A new release of Astryx is available: ${LABEL} → ${NEWER}` &&
         prefixForms.some(
@@ -1003,7 +1008,7 @@ async function main() {
         js.stderr.trim() === '' &&
         noticeOf(ci).length === 0 &&
         noticeOf(b).length === 0,
-      `notice=${JSON.stringify(notice)} prefix=${JSON.stringify(prefixForms)} json-stderr=${JSON.stringify(js.stderr.trim().slice(0, 100))} ci=${noticeOf(ci).length} after=${noticeOf(b).length}`,
+      `notice=${JSON.stringify(notice)} prefix=${JSON.stringify(prefixForms)} kick=${noticeOf(kick).length} a=${noticeOf(a).length} json-stderr=${JSON.stringify(js.stderr.trim().slice(0, 100))} ci=${noticeOf(ci).length} after=${noticeOf(b).length}`,
     );
   }
 }

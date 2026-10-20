@@ -51,7 +51,8 @@ import {isInReleaseCache, isReleaseVersion} from './cache.mjs';
 import {
   knownLatest,
   readGlobalState,
-  withStateLock,
+  stateFile,
+  tryStateLock,
   writeGlobalState,
 } from './global-state.mjs';
 import {globalFolderOf, isGlobalCopy, projectRootOf} from './choose.mjs';
@@ -91,12 +92,14 @@ export function takeNotice(
   }
   // Read, decide, and record under one lock: of the runs that finish at the
   // same moment, exactly one takes the notice.
-  const taken = withStateLock(stateDir, () => {
+  const outcome = tryStateLock(stateDir, () => {
     const state = readGlobalState(stateDir);
     const shown = state.notifiedAt ?? {};
     const last = shown[key];
     if (typeof last === 'number' && now - last < NOTICE_INTERVAL_MS) {
-      return false;
+      const skips = withSkip(state.noticeSkips, key, 'already-shown', now);
+      if (skips) writeGlobalState({...state, noticeSkips: skips}, stateDir);
+      return /** @type {const} */ ('already-shown');
     }
     /** @type {Record<string, number>} */
     const next = {};
@@ -104,9 +107,103 @@ export function takeNotice(
       if (typeof t === 'number' && now - t < FORGET_AFTER_MS) next[k] = t;
     }
     next[key] = now;
-    return writeGlobalState({...state, notifiedAt: next}, stateDir);
+    return writeGlobalState({...state, notifiedAt: next}, stateDir)
+      ? /** @type {const} */ ('taken')
+      : /** @type {const} */ ('state-unwritable');
   });
-  return taken === true;
+  if (outcome.ran) {
+    if (outcome.value === 'taken') return true;
+    if (outcome.value === 'state-unwritable') {
+      recordNoticeSkip(key, 'state-unwritable', {stateDir, now});
+    }
+    return false;
+  }
+  // Recorded under a lock of its own, outside the one already given up.
+  recordNoticeSkip(key, outcome.reason, {stateDir, now});
+  return false;
+}
+
+/** A skip with the same reason is recorded again only after this long. */
+const SKIP_RECORD_INTERVAL_MS = 60 * 60_000;
+
+/**
+ * `skips` with `key`'s skip set to `reason` at `now`, dropping skips older
+ * than {@link FORGET_AFTER_MS}; null when the same reason was recorded within
+ * {@link SKIP_RECORD_INTERVAL_MS}, so a notice skipped on every run does not
+ * rewrite the state file on every run.
+ * @param {Record<string, import('./global-state.mjs').NoticeSkip> | undefined} skips
+ * @param {string} key
+ * @param {import('./global-state.mjs').NoticeSkip['reason']} reason
+ * @param {number} now
+ * @returns {Record<string, import('./global-state.mjs').NoticeSkip> | null}
+ */
+function withSkip(skips, key, reason, now) {
+  const last = skips?.[key];
+  if (last?.reason === reason && now - last.at < SKIP_RECORD_INTERVAL_MS) {
+    return null;
+  }
+  /** @type {Record<string, import('./global-state.mjs').NoticeSkip>} */
+  const next = {};
+  for (const [k, skip] of Object.entries(skips ?? {})) {
+    if (
+      skip &&
+      typeof skip.at === 'number' &&
+      now - skip.at < FORGET_AFTER_MS
+    ) {
+      next[k] = skip;
+    }
+  }
+  next[key] = {reason, at: now};
+  return next;
+}
+
+/**
+ * Record why notice `key` did not print (state `noticeSkips`), for diagnosis
+ * only. It adds to a state file that already exists and never creates one, so
+ * a run that keeps no state (a project's own CLI before any check) writes
+ * nothing. Nothing is recorded when the state file cannot be written or its
+ * lock stays taken; a run never fails because of it.
+ * @param {string} key
+ * @param {import('./global-state.mjs').NoticeSkip['reason']} reason
+ * @param {{stateDir?: string, now?: number}} [options]
+ */
+export function recordNoticeSkip(
+  key,
+  reason,
+  {stateDir = userConfigDir(), now = Date.now()} = {},
+) {
+  try {
+    if (!fs.existsSync(stateFile(stateDir))) return;
+    tryStateLock(stateDir, () => {
+      const state = readGlobalState(stateDir);
+      const skips = withSkip(state.noticeSkips, key, reason, now);
+      if (skips) writeGlobalState({...state, noticeSkips: skips}, stateDir);
+    });
+  } catch {
+    // Diagnosis only.
+  }
+}
+
+/**
+ * The newest notice skip the state file records, with the notice it was for.
+ * @param {{stateDir?: string}} [options]
+ * @returns {({key: string} & import('./global-state.mjs').NoticeSkip) | null}
+ */
+export function lastNoticeSkip({stateDir = userConfigDir()} = {}) {
+  /** @type {({key: string} & import('./global-state.mjs').NoticeSkip) | null} */
+  let newest = null;
+  for (const [key, skip] of Object.entries(
+    readGlobalState(stateDir).noticeSkips ?? {},
+  )) {
+    if (
+      skip &&
+      typeof skip.at === 'number' &&
+      (!newest || skip.at > newest.at)
+    ) {
+      newest = {key, ...skip};
+    }
+  }
+  return newest;
 }
 
 /**
@@ -466,6 +563,7 @@ export function noticeLines({
           ? choice.coreVersion
           : choice.version;
       const lag = projectLag({cwd, current, stateDir});
+      if (!lag) recordNoticeSkip('project', 'no-newer', {stateDir, now});
       if (lag && take(`project:${lag.root}`)) {
         lines.push(
           availableLine(lag.current, lag.newest),
@@ -474,6 +572,7 @@ export function noticeLines({
       }
     } else if (isGlobalCopy(self.root, cacheDir)) {
       const behind = globalBehind({self, stateDir});
+      if (!behind) recordNoticeSkip('global', 'no-newer', {stateDir, now});
       if (behind && take('global')) {
         lines.push(
           availableLine(behind.current, behind.newest),

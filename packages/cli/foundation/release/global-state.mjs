@@ -58,6 +58,17 @@ export const CHECK_INTERVAL_MS = 24 * 60 * 60_000;
  * @property {{writtenBy?: string, attemptFor?: string, attemptAt?: number}} [agentText]
  * @property {Record<string, number>} [notifiedAt] when each update notice
  *   last printed (notices.mjs)
+ * @property {Record<string, NoticeSkip>} [noticeSkips] why each update notice
+ *   last did not print, for diagnosis only: `astryx doctor` shows the newest.
+ *   Not part of any contract; its shape may change in any release.
+ */
+
+/**
+ * Why an update notice did not print: `already-shown` (it printed within the
+ * day), `no-newer` (nothing newer is known), `lock-timeout` (another run held
+ * the state file's lock past the wait), or `state-unwritable` (the time it
+ * printed could not be recorded).
+ * @typedef {{reason: 'already-shown' | 'no-newer' | 'lock-timeout' | 'state-unwritable', at: number}} NoticeSkip
  */
 
 /**
@@ -101,18 +112,53 @@ function sleep(ms) {
  * @returns {T | undefined}
  */
 export function withStateLock(stateDir, change) {
+  const outcome = tryStateLock(stateDir, change);
+  return outcome.ran ? outcome.value : undefined;
+}
+
+/**
+ * Who holds the state file's lock now, read from its owner record, for
+ * diagnosis: null when it is free. `since` is when the lock folder was made.
+ * @param {string} [stateDir]
+ * @returns {{pid: number | null, host: string | null, since: number} | null}
+ */
+export function stateLockHolder(stateDir = userConfigDir()) {
+  const lockDir = path.join(stateDir, '.lock-state');
+  try {
+    const since = fs.statSync(lockDir).mtimeMs;
+    const owner = readJson(path.join(lockDir, 'owner.json'));
+    return {
+      pid: Number.isInteger(owner?.pid) ? owner.pid : null,
+      host: typeof owner?.host === 'string' ? owner.host : null,
+      since,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * {@link withStateLock}, saying why `change` did not run: the lock stayed
+ * taken past the wait (`lock-timeout`), or the folder cannot hold it
+ * (`state-unwritable`).
+ * @template T
+ * @param {string} stateDir
+ * @param {() => T} change
+ * @returns {{ran: true, value: T} | {ran: false, reason: 'lock-timeout' | 'state-unwritable'}}
+ */
+export function tryStateLock(stateDir, change) {
   const lockDir = path.join(stateDir, '.lock-state');
   const deadline = Date.now() + STATE_LOCK_WAIT_MS;
   try {
     while (!tryLock(lockDir)) {
-      if (Date.now() > deadline) return undefined;
+      if (Date.now() > deadline) return {ran: false, reason: 'lock-timeout'};
       sleep(10);
     }
   } catch {
-    return undefined;
+    return {ran: false, reason: 'state-unwritable'};
   }
   try {
-    return change();
+    return {ran: true, value: change()};
   } finally {
     fs.rmSync(lockDir, {recursive: true, force: true});
   }

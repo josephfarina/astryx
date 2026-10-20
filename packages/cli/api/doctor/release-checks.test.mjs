@@ -44,6 +44,25 @@ describe('checkNewestRelease', () => {
     });
   });
 
+  it('adds the last notice skip and a held state lock, for diagnosis', () => {
+    const check = checkNewestRelease({
+      nodeVersion: '24.0.0',
+      answeredBy,
+      latest: '0.7.1',
+      lastNoticeSkip: {
+        key: 'global',
+        reason: 'lock-timeout',
+        at: Date.UTC(2026, 9, 20, 18),
+      },
+      stateLock: {pid: 42, host: 'mac', since: Date.UTC(2026, 9, 20, 17)},
+    });
+    expect(check.message).toBe(
+      'No newer release is known: the newest is 0.7.1. ' +
+        "Last update notice skipped 2026-10-20T18:00:00.000Z (global): another run held the state file's lock past the wait. " +
+        "The state file's lock is held by process 42 on mac since 2026-10-20T17:00:00.000Z.",
+    );
+  });
+
   it("names the global copy's upgrade, after the Node the newest release needs", () => {
     const check = checkNewestRelease({
       nodeVersion: '22.13.0',

@@ -1381,6 +1381,10 @@ export function checkCliCommand(ctx) {
  *   release (outside a project)
  * @property {import('../../foundation/release/notices.mjs').ProjectLag | null} [projectLag]
  *   the project's release, when it is behind the newest (inside a project)
+ * @property {{key: string, reason: string, at: number} | null} [lastNoticeSkip]
+ *   the newest update notice that did not print, and why (diagnostic only)
+ * @property {{pid: number | null, host: string | null, since: number} | null} [stateLock]
+ *   who holds the state file's lock now (diagnostic only)
   * @property {Array<import('../../foundation/env/search-path.mjs').SearchPathCommand & {upgrade?: string | null}>} [searchPathCommands]
  *   every `astryx` on the search path, with the command that upgrades it
  *   the `astryx` commands on the search path, in order
@@ -1424,6 +1428,49 @@ export function checkAnsweringRelease(ctx) {
  * @returns {DoctorCheck}
  */
 export function checkNewestRelease(ctx) {
+  const check = newestReleaseCheck(ctx);
+  const notes = [skipNote(ctx.lastNoticeSkip), lockNote(ctx.stateLock)].filter(Boolean);
+  return notes.length > 0 ? {...check, message: [check.message, ...notes].join(' ')} : check;
+}
+
+/**
+ * The note on a state-file lock held right now, which keeps notices from
+ * being recorded (diagnostic only).
+ * @param {{pid: number | null, host: string | null, since: number} | null | undefined} lock
+ * @returns {string | null}
+ */
+function lockNote(lock) {
+  if (!lock) return null;
+  const by = lock.pid == null ? '' : ` by process ${lock.pid}${lock.host ? ` on ${lock.host}` : ''}`;
+  return `The state file's lock is held${by} since ${new Date(lock.since).toISOString()}.`;
+}
+
+/** What a recorded notice skip's reason means, for doctor's update line. */
+const SKIP_REASONS = {
+  'already-shown': 'it had already printed that day',
+  'no-newer': 'no newer release was known',
+  'lock-timeout': "another run held the state file's lock past the wait",
+  'state-unwritable': 'the state file could not be written',
+};
+
+/**
+ * The note on the last update notice that did not print, for diagnosis
+ * (diagnostic state, not a contract).
+ * @param {{key: string, reason: string, at: number} | null | undefined} skip
+ * @returns {string | null}
+ */
+function skipNote(skip) {
+  if (!skip) return null;
+  const why = /** @type {Record<string, string>} */ (SKIP_REASONS)[skip.reason] ?? skip.reason;
+  return `Last update notice skipped ${new Date(skip.at).toISOString()} (${skip.key}): ${why}.`;
+}
+
+/**
+ * {@link checkNewestRelease} without the skip note.
+ * @param {ComputerContext} ctx
+ * @returns {DoctorCheck}
+ */
+function newestReleaseCheck(ctx) {
   const {latest, globalBehind: behind, projectLag: lag} = ctx;
   const {cli} = ctx.answeredBy;
   const base = {id: 'newest-release', label: 'Newest release', status: /** @type {const} */ ('info')};
@@ -1864,6 +1911,8 @@ export async function runChecks(options = {}) {
       answeredBy: facts.answeredBy,
       latest: facts.latest,
       projectLag: facts.projectLag,
+      lastNoticeSkip: facts.lastNoticeSkip,
+      stateLock: facts.stateLock,
     }),
   );
   checks.push(
