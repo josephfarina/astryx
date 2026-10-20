@@ -171,19 +171,19 @@ folder that is not a project, and its docs have to say which.
 
 1. **Declare `outsideProject`** in the command doc: `same` (it answers as it
    would in a new project), `refuse` (it writes nothing and fails before doing
-   any work, naming what it needs), or `own` (it does something else, which
-   its `In global mode:` note states). A command that only groups subcommands
-   declares nothing.
-   `clients/cli/commands/outside-project.test.mjs` fails on a command without
-   one, and an `own` command needs a test of its own there.
-2. **Add the note.** A command whose value is not `same` carries one prose note
-   that starts `In global mode:`, says exactly what it does outside a project
-   (the error code and message it stops with, or what it does instead), and
-   links `{@link namespace:global}`. `test/global-mode-notes.test.mjs` fails on
-   a missing note, and `test/global-mode-docs.test.mjs` runs the command in an
-   empty folder and fails when the note and the run disagree. An API function
-   whose result depends on `cwd` being in a project carries the same sentence
-   in its description.
+   any work, naming what it needs), or `own` (it does something else). A
+   command that only groups subcommands declares nothing.
+   `clients/cli/commands/outside-project.test.mjs` runs every command in an
+   empty folder and checks what it does against this value, and fails on a
+   command without one; an `own` command needs a test of its own there.
+2. **Add the note, for readers.** Every `refuse` and every `own` command
+   carries one prose note that starts `In global mode:`, says exactly what it
+   does outside a project (the error code and message it stops with, or what
+   it does instead), and links `{@link namespace:global}`.
+   `test/global-mode-notes.test.mjs` fails on a missing note, and
+   `test/global-mode-docs.test.mjs` checks that the error code a note names is
+   the one the command stops with. An API function whose result depends on
+   `cwd` being in a project carries the same sentence in its description.
 3. **Add a who-answers row** when a change touches which copy of the CLI
    answers (an install layout, a door, a hand-off rule): one row in the global
    and project table of `spec:AST-081` and its test in

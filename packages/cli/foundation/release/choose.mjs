@@ -57,8 +57,8 @@ import {relativeWithin, samePath} from '../fs/path-compare.mjs';
  * @typedef {object} ReleaseChoice
  * @property {'project' | 'matched' | 'carried' | 'fallback'} copy the kind of
  *   copy that answers (`meta.answeredBy.copy`); `fallback` when the matched
- *   release could not be obtained and the copy that answered before global
- *   mode answers instead (spec AST-081 FR2)
+ *   release could not be obtained and the copy that started the run answers
+ *   instead (spec AST-081 FR2)
  * @property {'self' | 'project-cli' | 'release'} answer `self`: this copy;
  *   `project-cli`: hand off to the project's CLI; `release`: hand off to the
  *   cached release `version`
@@ -70,9 +70,6 @@ import {relativeWithin, samePath} from '../fs/path-compare.mjs';
  * @property {boolean} inProject
  * @property {string | null} unavailable why the release cannot answer, when it
  *   cannot
- * @property {{version: string, bin: string | null} | null} [fallback] for a
- *   matched release: the project's own CLI of another version, which answers
- *   when the matched release cannot be obtained; `null` for the starting copy
  */
 
 /**
@@ -93,8 +90,53 @@ const GLOBAL_OWNER_PATTERNS = [
   /[\\/]global[\\/]v?\d+(?:[\\/][^\\/]+)?$/,
   // Yarn 1: `~/.config/yarn/global`, or `%LOCALAPPDATA%\Yarn\Data\global` on Windows.
   /[\\/]yarn[\\/](?:data[\\/])?global$/i,
-  /[\\/]\.bun[\\/]install[\\/]global$/i,
+  // Bun: `<BUN_INSTALL>/install/global`, `~/.bun/install/global` by default.
+  /[\\/]install[\\/]global$/i,
 ];
+
+/**
+ * A package manager's global folder, recognized by its layout, so a folder
+ * moved by `BUN_INSTALL` or Yarn's `global-folder` counts too: Bun's
+ * `<BUN_INSTALL>/install/global`, pnpm's `<home>/global/<n>`, and Yarn 1's
+ * global folder, which holds only a package.json with nothing but its
+ * dependencies (no name or version), a yarn.lock, and node_modules: a project
+ * holds its own files beside them.
+ * @param {string} root the CLI package's real folder
+ * @returns {{manager: 'bun' | 'pnpm' | 'yarn', folder: string} | null}
+ */
+export function globalFolderOf(root) {
+  const place = installPlaceOf(root);
+  if (place.runner || !place.owner) return null;
+  const owner = place.owner;
+  if (/[\\/]install[\\/]global$/i.test(owner)) {
+    return {manager: 'bun', folder: owner};
+  }
+  if (/[\\/]yarn[\\/](?:data[\\/])?global$/i.test(owner)) {
+    return {manager: 'yarn', folder: owner};
+  }
+  if (GLOBAL_OWNER_PATTERNS[0].test(owner)) {
+    return {manager: 'pnpm', folder: owner};
+  }
+  const manifest = readJson(path.join(owner, 'package.json'));
+  const bare =
+    manifest !== null &&
+    typeof manifest === 'object' &&
+    Object.keys(manifest).every(key => key === 'dependencies');
+  if (bare && fs.existsSync(path.join(owner, 'yarn.lock'))) {
+    /** @type {string[]} */
+    let entries;
+    try {
+      entries = fs.readdirSync(owner);
+    } catch {
+      return null;
+    }
+    const yarnGlobal = new Set(['package.json', 'yarn.lock', 'node_modules']);
+    if (entries.every(entry => yarnGlobal.has(entry))) {
+      return {manager: 'yarn', folder: owner};
+    }
+  }
+  return null;
+}
 
 /** Path markers of package runners' temporary installs. */
 const RUNNER_CACHE =
@@ -152,7 +194,7 @@ export function isGlobalCopy(cliRoot, cacheDir = userCacheDir()) {
   if (place.runner || !place.owner || isInReleaseCache(root, cacheDir)) {
     return false;
   }
-  if (place.knownGlobal) return true;
+  if (place.knownGlobal || globalFolderOf(root)) return true;
   return !fs.existsSync(path.join(place.owner, 'package.json'));
 }
 
@@ -221,32 +263,12 @@ export function chooseRelease({
     };
   }
 
-  // Who answered before global mode: the project's own CLI, whatever its
-  // version, else the starting copy (null). It answers when the matched
-  // release cannot be obtained (FR2).
-  const fallback =
-    facts.cli && !samePath(real(facts.cli.dir), selfReal)
-      ? {version: facts.cli.version, bin: cliBinOf(facts.cli.dir)}
-      : null;
-  let {version, range} = matchedVersionOf(facts);
-  if (!version && range) {
-    version = resolve(range.name, range.spec);
-    if (!version) {
-      return {
-        copy: 'matched',
-        answer: 'release',
-        version: `${range.name}@${range.spec}`,
-        bin: null,
-        coreVersion: null,
-        inProject: true,
-        unavailable: `no published release of ${range.name} matching "${range.spec}" could be found`,
-        fallback,
-      };
-    }
-  }
-
-  const coreVersion = facts.core?.version ?? version;
-  if (facts.cli && (!version || facts.cli.version === version)) {
+  // A project that installs its own CLI is answered by that CLI, whatever its
+  // version, as before global mode (FR2; Core deciding over a differing
+  // project CLI is a next-minor change, AST-017 FR12). Only a project with no
+  // CLI of its own, or one whose CLI cannot start, gets the Core-matched
+  // release.
+  if (facts.cli) {
     if (samePath(real(facts.cli.dir), selfReal)) {
       return {
         copy: 'project',
@@ -259,19 +281,35 @@ export function chooseRelease({
       };
     }
     const bin = cliBinOf(facts.cli.dir);
-    return {
-      copy: 'project',
-      answer: 'project-cli',
-      version: facts.cli.version,
-      bin,
-      coreVersion: facts.core?.version ?? null,
-      inProject: true,
-      unavailable: bin
-        ? null
-        : `the project's CLI at ${facts.cli.dir} has no astryx command`,
-    };
+    if (bin) {
+      return {
+        copy: 'project',
+        answer: 'project-cli',
+        version: facts.cli.version,
+        bin,
+        coreVersion: facts.core?.version ?? null,
+        inProject: true,
+        unavailable: null,
+      };
+    }
+  }
+  let {version, range} = matchedVersionOf(facts);
+  if (!version && range) {
+    version = resolve(range.name, range.spec);
+    if (!version) {
+      return {
+        copy: 'matched',
+        answer: 'release',
+        version: `${range.name}@${range.spec}`,
+        bin: null,
+        coreVersion: null,
+        inProject: true,
+        unavailable: `no published release of ${range.name} matching "${range.spec}" could be found`,
+      };
+    }
   }
 
+  const coreVersion = facts.core?.version ?? version;
   if (!version || version === self.version) {
     // A copy that lives inside the project itself, such as a workspace's own
     // CLI package beside its Core package, is the project's own CLI.
@@ -304,7 +342,6 @@ export function chooseRelease({
     coreVersion,
     inProject: true,
     unavailable: null,
-    fallback,
   };
 }
 

@@ -368,7 +368,9 @@ describe('doctor outside a project (own)', () => {
         answeredBy: {cli: '1.2.0', core: '1.2.0', copy: 'carried'},
         latest,
       });
-    expect(at(null).message).toContain('No newer release is known');
+    expect(at(null).message).toBe(
+      'Update check: not run yet (it runs in the background, once a day).',
+    );
     expect(at('1.3.0').message).toContain('1.3.0 is newer than 1.2.0');
     expect(at('1.2.0').message).toContain('No newer release is known');
     for (const latest of [null, '1.3.0', '1.2.0', '1.1.0']) {

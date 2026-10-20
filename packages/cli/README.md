@@ -131,7 +131,7 @@ Every command supports `--json` for machine-readable output. Responses are typed
 {"apiVersion": 1, "type": "component.detail", "data": {"name": "Button", ...}, "meta": {"answeredBy": {"cli": "0.7.2", "core": "0.7.2", "copy": "project"}}}
 ```
 
-Every successful envelope carries `meta.answeredBy`: the CLI version that answered, the Core version it paired with (`null` when there is none), and which copy answered (`project`, `matched`, or `carried`).
+Every successful envelope carries `meta.answeredBy`: the CLI version that answered, the Core version it paired with (`null` when there is none), and which copy answered (`project`, `matched`, `carried`, or `fallback`).
 
 Errors:
 

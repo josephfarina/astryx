@@ -202,7 +202,7 @@ export const doc = {
       name: 'outsideProject',
       type: "'same' | 'refuse' | 'own'",
       description:
-        'What the command does outside a project. `same`: the answer it gives in a new project. `refuse`: it writes nothing and fails, naming the app project or integration package it needs. `own`: something else, which its `notes` state in an `In global mode:` note (as do the notes of every `refuse` command). Every command and subcommand declares one, and `astryx manifest` publishes it; a command that only groups subcommands declares none. The CLI tests run every command in an empty folder and check what it does against this value and its note; `astryx doctor` does not check it.',
+        'What the command does outside a project. `same`: the answer it gives in a new project. `refuse`: it writes nothing and fails, naming the app project or integration package it needs. `own`: something else. Every `refuse` and `own` command also carries an `In global mode:` note in its `notes` that tells readers exactly what it does. Every command and subcommand declares one, and `astryx manifest` publishes it; a command that only groups subcommands declares none. The CLI tests run every command in an empty folder and check what it does against this value; `astryx doctor` does not check it.',
     },
     {
       name: 'deprecated',

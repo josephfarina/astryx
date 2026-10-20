@@ -46,8 +46,9 @@ export interface CommandOptionDoc {
  *   the answering release carries.
  * - `refuse`: it writes nothing and fails before doing any work, naming the app
  *   project or integration package it needs.
- * - `own`: it does something else, which its `notes` state in an
- *   `In global mode:` note.
+ * - `own`: it does something else.
+ * Every `refuse` and `own` command also carries an `In global mode:` note
+ * in its `notes`, for readers.
  */
 export type CommandOutsideProject = 'same' | 'refuse' | 'own';
 

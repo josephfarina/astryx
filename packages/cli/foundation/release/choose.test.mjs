@@ -74,7 +74,7 @@ describe('chooseRelease in a project', () => {
     expect(choice).toMatchObject({copy: 'project', answer: 'self'});
   });
 
-  it('lets Core decide when the project CLI is another release, both ways', () => {
+  it("lets the project's own CLI answer even when it is another release than Core, both ways", () => {
     for (const [cliVersion, coreVersion] of [
       ['0.6.8', '0.7.0'],
       ['0.7.1', '0.6.8'],
@@ -82,43 +82,50 @@ describe('chooseRelease in a project', () => {
       const root = project(tempDir(), {'@astryxdesign/core': coreVersion});
       installCore(root, coreVersion);
       const cli = installStandInCli(root, cliVersion);
-      const fromProjectCli = chooseRelease({
-        cwd: root,
-        self: {version: cliVersion, root: cli},
-        cacheDir: tempDir('cache'),
-      });
-      expect(fromProjectCli).toMatchObject({
-        copy: 'matched',
-        answer: 'release',
-        version: coreVersion,
-      });
-      const fromGlobal = chooseRelease({
-        cwd: root,
-        self: globalCopy('0.7.2'),
-        cacheDir: tempDir('cache'),
-      });
-      expect(fromGlobal).toMatchObject({
-        copy: 'matched',
-        answer: 'release',
-        version: coreVersion,
+      expect(
+        chooseRelease({
+          cwd: root,
+          self: {version: cliVersion, root: cli},
+          cacheDir: tempDir('cache'),
+        }),
+      ).toMatchObject({copy: 'project', answer: 'self', version: cliVersion});
+      expect(
+        chooseRelease({
+          cwd: root,
+          self: globalCopy('0.7.2'),
+          cacheDir: tempDir('cache'),
+        }),
+      ).toMatchObject({
+        copy: 'project',
+        answer: 'project-cli',
+        version: cliVersion,
       });
     }
   });
 
-  it('answers itself as the matched release when it equals the project Core', () => {
+  it("hands a run to the project's own CLI even from a copy equal to the project's Core", () => {
     const root = project(tempDir(), {'@astryxdesign/core': '0.7.2'});
     installCore(root, '0.7.2');
     installStandInCli(root, '0.6.8');
-    const choice = chooseRelease({
-      cwd: root,
-      self: runnerCopy('0.7.2'),
-      cacheDir: tempDir('cache'),
-    });
-    expect(choice).toMatchObject({
-      copy: 'matched',
-      answer: 'self',
-      version: '0.7.2',
-    });
+    expect(
+      chooseRelease({
+        cwd: root,
+        self: runnerCopy('0.7.2'),
+        cacheDir: tempDir('cache'),
+      }),
+    ).toMatchObject({copy: 'project', answer: 'project-cli', version: '0.6.8'});
+  });
+
+  it('answers itself as the matched release in a Core-only project equal to it', () => {
+    const root = project(tempDir(), {'@astryxdesign/core': '0.7.2'});
+    installCore(root, '0.7.2');
+    expect(
+      chooseRelease({
+        cwd: root,
+        self: runnerCopy('0.7.2'),
+        cacheDir: tempDir('cache'),
+      }),
+    ).toMatchObject({copy: 'matched', answer: 'self', version: '0.7.2'});
   });
 
   it('matches a Core-only project to its Core', () => {
@@ -137,7 +144,7 @@ describe('chooseRelease in a project', () => {
     });
   });
 
-  it('matches a workspace member with its own Core, under a root CLI', () => {
+  it('answers a workspace member with its own Core with the root CLI, as before global mode', () => {
     const ws = tempDir();
     writeJson(path.join(ws, 'package.json'), {
       name: 'ws',
@@ -156,7 +163,7 @@ describe('chooseRelease in a project', () => {
       self: globalCopy('0.7.2'),
       cacheDir: tempDir('cache'),
     });
-    expect(choice).toMatchObject({copy: 'matched', version: '0.6.8'});
+    expect(choice).toMatchObject({copy: 'project', version: '0.7.1'});
     const web = project(path.join(ws, 'apps', 'web'), {
       '@astryxdesign/core': '0.7.1',
     });
@@ -220,17 +227,17 @@ describe('chooseRelease in a project', () => {
     expect(choice.unavailable).toMatch(/\^9\.0\.0/);
   });
 
-  it('reports a project CLI with no astryx command as unavailable', () => {
+  it("passes a project CLI with no astryx command over for the release matching the project's Core", () => {
     const root = project(tempDir(), {'@astryxdesign/core': '0.6.8'});
     installCore(root, '0.6.8');
     installStandInCli(root, '0.6.8', {bin: false});
-    const choice = chooseRelease({
-      cwd: root,
-      self: globalCopy('0.7.2'),
-      cacheDir: tempDir('cache'),
-    });
-    expect(choice).toMatchObject({copy: 'project', answer: 'project-cli'});
-    expect(choice.unavailable).toMatch(/no astryx command/);
+    expect(
+      chooseRelease({
+        cwd: root,
+        self: globalCopy('0.7.2'),
+        cacheDir: tempDir('cache'),
+      }),
+    ).toMatchObject({copy: 'matched', answer: 'release', version: '0.6.8'});
   });
 
   it('ignores a version requested on the command line: the copy still hands off', () => {

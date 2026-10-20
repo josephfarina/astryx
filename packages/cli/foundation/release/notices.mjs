@@ -54,7 +54,7 @@ import {
   withStateLock,
   writeGlobalState,
 } from './global-state.mjs';
-import {isGlobalCopy, projectRootOf} from './choose.mjs';
+import {globalFolderOf, isGlobalCopy, projectRootOf} from './choose.mjs';
 import {readReleaseFacts} from './project.mjs';
 import {samePath} from '../fs/path-compare.mjs';
 import {updateNoticesOff} from './update-notice-env.mjs';
@@ -146,19 +146,56 @@ export function globalUpgradeCommand(cliRoot, where = {}) {
     // Read the path as given.
   }
   if (/[\\/]\.volta[\\/]/iu.test(at)) return `volta install ${LATEST}`;
-  if (/[\\/]\.bun[\\/]install[\\/]global[\\/]/iu.test(at)) {
-    return `bun add -g ${LATEST}`;
+  const {
+    home = os.homedir(),
+    platform = process.platform,
+    env = process.env,
+  } = where;
+  const global = globalFolderOf(at);
+  if (global?.manager === 'bun') {
+    // `bun add -g` installs into `$BUN_INSTALL/install/global` (`~/.bun` by
+    // default): name the folder when it is a moved one BUN_INSTALL does not
+    // point at now.
+    const paths = platform === 'win32' ? path.win32 : path.posix;
+    const bunHome = paths.dirname(paths.dirname(global.folder));
+    const moved =
+      paths.basename(bunHome) !== '.bun' &&
+      !(env.BUN_INSTALL && samePath(bunHome, env.BUN_INSTALL, platform));
+    return moved && platform !== 'win32'
+      ? `BUN_INSTALL=${typedPath(bunHome, home)} bun add -g ${LATEST}`
+      : `bun add -g ${LATEST}`;
   }
-  if (/[\\/]yarn[\\/](?:data[\\/])?global[\\/]/iu.test(at)) {
-    return `yarn global add ${LATEST}`;
+  if (global?.manager === 'yarn') {
+    return /[\\/]yarn[\\/](?:data[\\/])?global$/iu.test(global.folder)
+      ? `yarn global add ${LATEST}`
+      : `yarn global add --global-folder ${typedPath(global.folder, platform === 'win32' ? null : home)} ${LATEST}`;
   }
-  if (/[\\/]pnpm[\\/]|[\\/]global[\\/]v?\d+[\\/]/iu.test(at)) {
+  if (
+    global?.manager === 'pnpm' ||
+    /[\\/]pnpm[\\/]|[\\/]global[\\/]v?\d+[\\/]/iu.test(at)
+  ) {
     return `pnpm add -g ${LATEST}`;
   }
   const prefix = npmOwnPrefix(at, where);
   return prefix
     ? `npm i -g --prefix ${prefix} ${LATEST}`
     : `npm i -g ${LATEST}`;
+}
+
+/**
+ * A folder as a person types it: `~` for the home folder when given, and
+ * quoted when it holds a space.
+ * @param {string} dir
+ * @param {string | null} home
+ * @returns {string}
+ */
+function typedPath(dir, home) {
+  if (home) {
+    const rel = path.relative(home, dir);
+    if (rel === '') return '~';
+    if (!rel.startsWith('..') && !path.isAbsolute(rel)) return `~/${rel}`;
+  }
+  return /\s/.test(dir) ? JSON.stringify(dir) : dir;
 }
 
 /**
@@ -275,6 +312,23 @@ const ADD = {
   yarn: 'yarn add',
   bun: 'bun add',
 };
+
+/**
+ * The commands that bring a project's own CLI and Core to one release, with
+ * the project's package manager: when the CLI is newer, Core up to it and then
+ * the codemods from Core's release; otherwise the CLI to Core's release.
+ * @param {{cwd: string, cli: string, core: string}} options
+ * @returns {string}
+ */
+export function alignCliAndCore({cwd, cli, core}) {
+  const facts = readReleaseFacts(cwd);
+  const root = projectRootOf(facts) ?? cwd;
+  const add = ADD[detectPackageManager(root)] ?? ADD.npm;
+  if (semverCompare(cli, core) > 0) {
+    return `${add} @astryxdesign/core@${cli}, then ${getRunPrefix(root)} astryx upgrade --from ${core} --apply`;
+  }
+  return `${add} ${CLI_PACKAGE}@${core}`;
+}
 
 /**
  * Whether the project's release is older than the newest release known, and

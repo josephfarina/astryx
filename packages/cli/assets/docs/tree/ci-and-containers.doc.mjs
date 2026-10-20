@@ -37,7 +37,7 @@ export const docs = {
           style: 'unordered',
           items: [
             'Most CI services set `CI=true`. When `CI` is set to anything but empty, `0`, or `false`, Astryx never checks for updates and never prints a notice; `CI=false`, `CI=0`, and an empty `CI` do not count. `NO_UPDATE_NOTIFIER`, set to anything, does the same anywhere.',
-            "Run the project's own CLI, such as `npx astryx`, so CI uses the version pinned in the repo. A global install in a CI image also works: in a project, it runs the project's version.",
+            "Add `@astryxdesign/cli` to the project as a devDependency at the same version as `@astryxdesign/core`; then CI runs the version pinned in the repo, and nothing is fetched. A global install in a CI image also works: in a project, it runs the project's version.",
             'Use `--json` for output a script reads; it never carries the answered-by line or a notice.',
           ],
         },
@@ -49,7 +49,18 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "When the project installs its matching CLI and you install the project's dependencies first, there is nothing to cache: the project's own CLI answers. Otherwise Astryx installs the project's version into its cache once; to skip that download on every run, cache the folder between runs: `~/.cache/astryx` on Linux, or wherever `XDG_CACHE_HOME` points ({@link generic:reference}).",
+          text: "When the project installs its own CLI and you install the project's dependencies first, there is nothing to cache. A project that installs only Core gets its version installed into Astryx's cache once; to skip that download on every run, cache this folder between runs:",
+        },
+        {
+          type: 'table',
+          headers: ['Linux', 'macOS', 'Windows'],
+          rows: [
+            [
+              '`~/.cache/astryx` (or `$XDG_CACHE_HOME/astryx`)',
+              '`~/Library/Caches/astryx`',
+              '`%LOCALAPPDATA%\\astryx\\Cache`',
+            ],
+          ],
         },
       ],
     },
@@ -59,7 +70,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "When the cache cannot be written, a project whose version is not installed is answered by its own CLI, or by the global install, with a warning naming the folder. Point `XDG_CACHE_HOME` at a writable absolute path, or install the project's dependencies so its own matching CLI answers. The global install's daily check and agent guide are skipped quietly when they cannot be written.",
+          text: "When the cache cannot be written, a project that installs only Core is answered by the global install, with a warning naming the folder. Point `XDG_CACHE_HOME` at a writable absolute path, or add the CLI to the project and install its dependencies. The global install's daily check and agent guide are skipped quietly when they cannot be written.",
         },
       ],
     },

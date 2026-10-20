@@ -198,31 +198,12 @@ export async function startRun({cliRoot, argv}) {
     }
   };
   /**
-   * The matched release cannot be obtained: the copy that answered before
-   * global mode answers instead, announced (FR2).
+   * The matched release cannot be obtained: the copy that started the run
+   * answers instead, as before global mode, announced (FR2).
    * @param {string} reason
    * @returns {Promise<void>}
    */
   const fallBack = async reason => {
-    const target = choice.fallback;
-    if (target?.bin) {
-      if (!json && !namesWhoAnswered(packageRootOf(target.bin))) {
-        console.error(fallbackLine(choice.version, reason, target.version));
-      }
-      await handOff(
-        target.bin,
-        argv,
-        {
-          ...choice,
-          copy: 'fallback',
-          answer: 'project-cli',
-          version: target.version,
-        },
-        json,
-        notify,
-      );
-      return;
-    }
     recordRunChoice({
       ...choice,
       copy: 'fallback',

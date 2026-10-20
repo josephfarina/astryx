@@ -271,6 +271,8 @@ describe('resolvePublishedVersion', () => {
         '--json',
         '--fetch-retries=1',
         '--fetch-timeout=30000',
+        '--fetch-retry-mintimeout=2000',
+        '--fetch-retry-maxtimeout=10000',
       ]);
       return {status: 0, stdout: '["0.6.3","0.6.8"]', stderr: ''};
     };

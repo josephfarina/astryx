@@ -57,13 +57,8 @@ import {typedEdges} from '../docs/node/node.mjs';
 import {detailView, indexView} from '../../foundation/doc-compiler/lenses.mjs';
 import {semverCompare, isValidSemver, satisfiesRange} from '../../foundation/env/semver.mjs';
 import {checkAppThemes, checkThemes} from './theme-checks.mjs';
-import {isOutsideProject} from '../../foundation/env/project-scope.mjs';
-import {answeredBy} from '../../foundation/release/run-context.mjs';
-import {knownLatestRelease} from '../../foundation/release/global-state.mjs';
-import {availableLine, globalBehind, globalUpgradeCommand, projectLag, upgradeLine} from '../../foundation/release/notices.mjs';
-import {isGlobalCopy} from '../../foundation/release/choose.mjs';
-import {astryxCommandsOnSearchPath} from '../../foundation/env/search-path.mjs';
-import {computerAgentTextState, computerIntegrationsOutside, computerIntegrationsToAdd, displayHomePath} from './_adapter.mjs';
+import {availableLine, upgradeLine} from '../../foundation/release/notices.mjs';
+import {alignCommand, computerAgentTextState, computerIntegrationsOutside, computerIntegrationsToAdd, displayHomePath, outsideProject, releaseFacts} from './_adapter.mjs';
 
 /**
  * @typedef {'pass'|'warn'|'fail'|'info'} DoctorStatus
@@ -270,25 +265,18 @@ export function checkVersionAlignment(ctx) {
     };
   }
 
-  const [coreMajor, coreMinor] = coreVersion.split('.').map(Number);
-  const [cliMajor, cliMinor] = cliVersion.split('.').map(Number);
-  const drift = coreMajor !== cliMajor || coreMinor !== cliMinor;
-
+  // The project's own CLI answers this project whatever its version
+  // (spec AST-081 FR2), so any difference means templates, docs, and agent
+  // text come from one release and components from another.
+  const drift = coreVersion !== cliVersion;
   return {
     id: 'version-alignment',
     label: '@astryxdesign/core <-> @astryxdesign/cli alignment',
     status: drift ? 'warn' : 'pass',
     message: drift
-      ? `@astryxdesign/core v${coreVersion} drifts from @astryxdesign/cli v${cliVersion} (major/minor mismatch).`
+      ? `This project's CLI ${cliVersion} answers it, but its Core is ${coreVersion}: templates, docs, and agent text come from CLI ${cliVersion}, components from Core ${coreVersion}.`
       : `@astryxdesign/core v${coreVersion} is in step with @astryxdesign/cli v${cliVersion}.`,
-    ...(drift
-      ? {
-          fix:
-            semverCompare(cliVersion, coreVersion) > 0
-              ? `Update @astryxdesign/core to ${cliMajor}.${cliMinor}.x to match the CLI.`
-              : `Update @astryxdesign/cli to ${coreMajor}.${coreMinor}.x to match @astryxdesign/core.`,
-        }
-      : {}),
+    ...(drift ? {fix: `To align them, run: ${alignCommand(ctx.cwd, cliVersion, coreVersion)}.`} : {}),
   };
 }
 
@@ -1376,7 +1364,8 @@ export function checkCliCommand(ctx) {
  *   release (outside a project)
  * @property {import('../../foundation/release/notices.mjs').ProjectLag | null} [projectLag]
  *   the project's release, when it is behind the newest (inside a project)
-  * @property {import('../../foundation/env/search-path.mjs').SearchPathCommand[]} [searchPathCommands]
+  * @property {Array<import('../../foundation/env/search-path.mjs').SearchPathCommand & {upgrade?: string | null}>} [searchPathCommands]
+ *   every `astryx` on the search path, with the command that upgrades it
  *   the `astryx` commands on the search path, in order
  * @property {import('../../foundation/integrations/computer-integrations.mjs').ComputerIntegrationCandidate[]} [computerIntegrations]
  *   the integrations installed beside the running CLI
@@ -1438,7 +1427,7 @@ export function checkNewestRelease(ctx) {
   if (!latest) {
     return {
       ...base,
-      message: 'No newer release is known: this computer has not checked the package registry yet.',
+      message: 'Update check: not run yet (it runs in the background, once a day).',
     };
   }
   if (isValidSemver(latest) && isValidSemver(cli) && semverCompare(latest, cli) > 0) {
@@ -1458,7 +1447,7 @@ export function checkNewestRelease(ctx) {
  * @returns {DoctorCheck}
  */
 export function checkCliOnPath(ctx) {
-  const rows = ctx.searchPathCommands ?? astryxCommandsOnSearchPath();
+  const rows = ctx.searchPathCommands ?? [];
   const base = {id: 'cli-on-path', label: '`astryx` on the search path'};
   const describe = (/** @type {import('../../foundation/env/search-path.mjs').SearchPathCommand} */ row) =>
     row.astryx ? `${row.file} (CLI ${row.version ?? 'of unknown version'})` : `${row.file} (not the Astryx CLI)`;
@@ -1486,7 +1475,7 @@ export function checkCliOnPath(ctx) {
       ...base,
       status: 'warn',
       message: `The first \`astryx\` on the search path, ${first.file}, runs CLI ${first.version ?? 'of unknown version'}, which predates the hand-off and answers every folder itself.${othersNote}`,
-      fix: `To upgrade, run: \`${first.cliRoot ? globalUpgradeCommand(first.cliRoot) : 'npm i -g @astryxdesign/cli@latest'}\`.`,
+      fix: `To upgrade, run: \`${first.upgrade ?? 'npm i -g @astryxdesign/cli@latest'}\`.`,
     };
   }
   return {
@@ -1659,11 +1648,9 @@ async function runComputerChecks(cwd) {
   /** @type {ComputerContext} */
   const ctx = {
     nodeVersion: process.versions.node,
-    answeredBy: answeredBy(cwd),
-    latest: knownLatestRelease(),
     cwd,
+    ...releaseFacts(cwd, {project: false}),
   };
-  ctx.globalBehind = isGlobalCopy(CLI_ROOT) ? globalBehind({self: {version: ctx.answeredBy.cli, root: CLI_ROOT}}) : null;
   Object.assign(ctx, await computerIntegrationsOutside(cwd));
   const checks = COMPUTER_CHECKS.map(fn => fn(ctx));
   const summary = {pass: 0, warn: 0, fail: 0, info: 0};
@@ -1699,7 +1686,7 @@ export const SYNC_CHECKS = [
  */
 export async function runChecks(options = {}) {
   const cwd = options.cwd ?? process.cwd();
-  if (isOutsideProject(cwd)) return runComputerChecks(cwd);
+  if (outsideProject(cwd)) return runComputerChecks(cwd);
   const coreDir = findProjectCoreDir(cwd);
   // findConfigPath throws when multiple config files coexist. That's a
   // misconfiguration doctor exists to report — catch it and surface it through
@@ -1861,16 +1848,23 @@ export async function runChecks(options = {}) {
       checks.push(await checkConfig(ctx));
     }
   }
-    const answered = answeredBy(cwd);
+  const facts = releaseFacts(cwd, {project: true});
   checks.push(
     checkNewestRelease({
       nodeVersion: ctx.nodeVersion,
-      answeredBy: answered,
-      latest: knownLatestRelease(),
-      projectLag: projectLag({cwd, current: answered.cli}),
+      answeredBy: facts.answeredBy,
+      latest: facts.latest,
+      projectLag: facts.projectLag,
     }),
   );
-    checks.push(checkCliOnPath({nodeVersion: ctx.nodeVersion, answeredBy: answered, latest: null}));
+  checks.push(
+    checkCliOnPath({
+      nodeVersion: ctx.nodeVersion,
+      answeredBy: facts.answeredBy,
+      latest: null,
+      searchPathCommands: facts.searchPathCommands,
+    }),
+  );
   {
     const loadedNames = (project?.loadedIntegrations ?? []).map((/** @type {{name: string}} */ i) => i.name);
     const candidates = await computerIntegrationsToAdd(cwd, loadedNames);

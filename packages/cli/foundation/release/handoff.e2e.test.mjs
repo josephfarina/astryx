@@ -111,25 +111,25 @@ describe('hand-off to the project CLI', () => {
     expect(result.stderr.trim()).toBe('stand-in 0.6.8');
   });
 
-  it('fails with ERR_VERSIONS_UNAVAILABLE when the project CLI cannot start', () => {
+  it("a project CLI that cannot start: the release matching the project's Core answers; offline, this copy, with the warning", () => {
     const root = project(tempDir(), {'@astryxdesign/core': '0.6.8'});
     installCore(root, '0.6.8');
     installStandInCli(root, '0.6.8', {bin: false});
-    const json = run(root, ['docs', '--json']);
-    expect(json.status).toBe(1);
-    expect(JSON.parse(json.stdout)).toMatchObject({
-      code: 'ERR_VERSIONS_UNAVAILABLE',
-    });
-    const text = run(root, ['docs']);
-    expect(text.status).toBe(1);
+    const offline = {npm_config_registry: 'http://127.0.0.1:9'};
+    const json = run(root, ['docs', '--json'], {env: offline});
+    expect(json.status).toBe(0);
+    expect(JSON.parse(json.stdout).meta.answeredBy.copy).toBe('fallback');
+    const text = run(root, ['--version'], {env: offline});
+    expect(text.status).toBe(0);
+    expect(text.stdout.trim()).toBe(SELF_VERSION);
     expect(text.stderr).toMatch(
-      /^Error: This project's CLI 0\.6\.8 could not be started/,
+      /astryx: could not get Astryx 0\.6\.8 to match this project's Core/u,
     );
   });
 });
 
 describe('hand-off to the matched release', () => {
-  it("runs the cached release equal to the project's Core when the project CLI differs", () => {
+  it("runs the project's own CLI even when its version differs from the project's Core", () => {
     const cache = tempDir('cache');
     seedRelease(path.join(cache, 'astryx'), '0.7.0');
     const root = project(tempDir(), {'@astryxdesign/core': '0.7.0'});
@@ -138,10 +138,22 @@ describe('hand-off to the matched release', () => {
     const result = run(root, ['upgrade', '--from', '0.6.8'], {cache});
     expect(result.status).toBe(0);
     expect(result.report()).toMatchObject({
+      version: '0.6.8',
+      args: ['upgrade', '--from', '0.6.8'],
+    });
+  });
+
+  it("runs the cached release equal to the project's Core when the project installs only Core", () => {
+    const cache = tempDir('cache');
+    seedRelease(path.join(cache, 'astryx'), '0.7.0');
+    const root = project(tempDir(), {'@astryxdesign/core': '0.7.0'});
+    installCore(root, '0.7.0');
+    const result = run(root, ['upgrade', '--from', '0.6.8'], {cache});
+    expect(result.status).toBe(0);
+    expect(result.report()).toMatchObject({
       version: '0.7.0',
       args: ['upgrade', '--from', '0.6.8'],
     });
-    // The stand-in predates the who-answered line, so this copy prints it.
     expect(result.stderr.trim().split('\n')).toEqual([
       "astryx: answered by CLI 0.7.0 with Core 0.7.0, the release that matches this project's Core",
       'stand-in 0.7.0',

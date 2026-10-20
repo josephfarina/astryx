@@ -481,7 +481,73 @@ export function resolveLatestRelease(options = {}) {
  * out npm's default retries. Registry, proxy, and offline settings still come
  * from the user's npm configuration.
  */
-const BOUNDED_FETCH = ['--fetch-retries=1', '--fetch-timeout=30000'];
+const BOUNDED_FETCH = [
+  '--fetch-retries=1',
+  '--fetch-timeout=30000',
+  // One quick retry, so an offline run learns it is offline in seconds.
+  '--fetch-retry-mintimeout=2000',
+  '--fetch-retry-maxtimeout=10000',
+];
+
+/**
+ * How long a failed install of a release is remembered, so offline runs do
+ * not start npm again on every run (spec AST-081 FR2).
+ */
+export const FAILED_INSTALL_TTL_MS = 10 * 60_000;
+
+/**
+ * The record of a failed install of `version`: a file in the release cache,
+ * shared by every copy of the CLI that uses this cache.
+ * @param {string} version
+ * @param {string} cacheDir
+ * @returns {string}
+ */
+function failedRecordPath(version, cacheDir) {
+  return path.join(releasesDir(cacheDir), `.failed-${version}.json`);
+}
+
+/**
+ * A failed install of `version` recorded within the last
+ * FAILED_INSTALL_TTL_MS, or null.
+ * @param {string} version
+ * @param {string} cacheDir
+ * @param {number} [now]
+ * @returns {{at: number, reason: string} | null}
+ */
+export function recentFailedInstall(version, cacheDir, now = Date.now()) {
+  const record = readJson(failedRecordPath(version, cacheDir));
+  if (
+    !record ||
+    typeof record.at !== 'number' ||
+    typeof record.reason !== 'string'
+  ) {
+    return null;
+  }
+  const age = now - record.at;
+  return age >= 0 && age < FAILED_INSTALL_TTL_MS ? record : null;
+}
+
+/**
+ * Remember, or forget, a failed install of `version`. Never fails a run.
+ * @param {string} version
+ * @param {string} cacheDir
+ * @param {string | null} reason null forgets it
+ */
+function recordFailedInstall(version, cacheDir, reason) {
+  const file = failedRecordPath(version, cacheDir);
+  try {
+    if (reason === null) {
+      fs.rmSync(file, {force: true});
+      return;
+    }
+    fs.mkdirSync(path.dirname(file), {recursive: true});
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify({at: Date.now(), reason})}\n`);
+    fs.renameSync(tmp, file);
+  } catch {
+    // An unwritable cache already answers for itself.
+  }
+}
 
 /**
  * The longest an install may take: generous, so a slow but moving download
@@ -676,6 +742,16 @@ export function ensureRelease(version, options = {}) {
   }
   const existing = cachedRelease(version, cacheDir);
   if (existing) return existing;
+  // A recent failed install is not retried: offline, every run would start
+  // npm again and wait for it (FR2).
+  const failed = recentFailedInstall(version, cacheDir);
+  if (failed) {
+    const minutes = Math.max(1, Math.round((Date.now() - failed.at) / 60_000));
+    return {
+      version,
+      reason: `${failed.reason}; last tried ${minutes} minute${minutes === 1 ? '' : 's'} ago, tried again after ${FAILED_INSTALL_TTL_MS / 60_000} minutes`,
+    };
+  }
   try {
     const result = ensureLocked(version, {
       cacheDir,
@@ -688,6 +764,14 @@ export function ensureRelease(version, options = {}) {
     // cleared; end the run the way the signal would have.
     if ('signal' in result && result.signal)
       process.kill(process.pid, result.signal);
+    if ('bin' in result) recordFailedInstall(version, cacheDir, null);
+    else if (
+      'reason' in result &&
+      !('signal' in result && result.signal) &&
+      result.reason !== 'another run is still installing it'
+    ) {
+      recordFailedInstall(version, cacheDir, result.reason);
+    }
     return result;
   } catch (error) {
     const code = /** @type {NodeJS.ErrnoException} */ (error).code;

@@ -32,6 +32,20 @@ export const docs = {
     "People can install your integration next to their global Astryx install, where it works in every folder outside a project; inside a project, only the project's own integrations work. A checklist, with the exact commands to try it.",
   sections: [
     {
+      id: 'peer-range',
+      title: "First: your peer ranges must include the global CLI's version",
+      content: [
+        {
+          type: 'prose',
+          text: 'Your `@astryxdesign/core` (and, if you use it, `@astryxdesign/cli`) `peerDependencies` ranges must include the version of the CLI installed globally. If they do not, Astryx skips your package outside projects, and `astryx doctor` warns and names the range.',
+        },
+        {
+          type: 'prose',
+          text: "Inside a project that does not install your package, `astryx discover` lists it as one the project could add, with the project's install command, when it supports the project's version.",
+        },
+      ],
+    },
+    {
       id: 'where-it-works',
       title: 'Where your integration works',
       content: [

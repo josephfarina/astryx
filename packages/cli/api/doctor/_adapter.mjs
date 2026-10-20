@@ -2,6 +2,17 @@
 
 /** @file Environment adapter for app-theme doctor evidence. */
 
+import {isOutsideProject} from '../../foundation/env/project-scope.mjs';
+import {answeredBy} from '../../foundation/release/run-context.mjs';
+import {knownLatestRelease} from '../../foundation/release/global-state.mjs';
+import {
+  alignCliAndCore,
+  globalBehind,
+  globalUpgradeCommand,
+  projectLag,
+} from '../../foundation/release/notices.mjs';
+import {isGlobalCopy} from '../../foundation/release/choose.mjs';
+import {astryxCommandsOnSearchPath} from '../../foundation/env/search-path.mjs';
 import {readDeclaredDependencies} from '../../foundation/integrations/autolink.mjs';
 import {
   displayHomePath,
@@ -21,6 +32,7 @@ import {
 } from '../../foundation/discovery/theme-discovery.mjs';
 import {resolveThemeImports} from '../../foundation/discovery/theme-imports.mjs';
 import {
+  CLI_ROOT,
   findProjectCoreDir,
   findInstalledPackage,
 } from '../../foundation/fs/paths.mjs';
@@ -276,3 +288,48 @@ export function computerAgentTextState() {
 }
 
 export {displayHomePath};
+
+/**
+ * The release facts doctor reports, read here so the checks stay pure
+ * (spec AST-081 FR5, FR6, FR10; architecture:cli-surface INV21): who
+ * answered, the newest release the computer knows of, how far the global copy
+ * or the project is behind, and every `astryx` on the search path with the
+ * command that upgrades it.
+ * @param {string} cwd
+ * @param {{project: boolean}} options
+ * @returns {{answeredBy: {cli: string, core: string | null, copy: string}, latest: string | null, globalBehind: ReturnType<typeof globalBehind> | null, projectLag: ReturnType<typeof projectLag> | null, searchPathCommands: Array<import('../../foundation/env/search-path.mjs').SearchPathCommand & {upgrade: string | null}>}}
+ */
+export function releaseFacts(cwd, {project}) {
+  const answered = answeredBy(cwd);
+  return {
+    answeredBy: answered,
+    latest: knownLatestRelease(),
+    globalBehind:
+      !project && isGlobalCopy(CLI_ROOT)
+        ? globalBehind({self: {version: answered.cli, root: CLI_ROOT}})
+        : null,
+    projectLag: project ? projectLag({cwd, current: answered.cli}) : null,
+    searchPathCommands: astryxCommandsOnSearchPath().map(row => ({
+      ...row,
+      upgrade: row.cliRoot ? globalUpgradeCommand(row.cliRoot) : null,
+    })),
+  };
+}
+
+/** Whether `cwd` is outside every project. */
+export function outsideProject(/** @type {string} */ cwd) {
+  return isOutsideProject(cwd);
+}
+
+/**
+ * The commands that bring a project's own CLI and Core to one release, with
+ * the project's package manager: Core up to the CLI, then its codemods, when
+ * the CLI is newer; else the CLI to the Core's release.
+ * @param {string} cwd
+ * @param {string} cli
+ * @param {string} core
+ * @returns {string}
+ */
+export function alignCommand(cwd, cli, core) {
+  return alignCliAndCore({cwd, cli, core});
+}

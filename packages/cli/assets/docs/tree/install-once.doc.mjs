@@ -77,7 +77,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: 'When a project needs a version you do not have, such as a fresh clone or a project that installs only `@astryxdesign/core`, Astryx installs that version once into a cache in your home folder and reuses it. It uses npm for that, so your npm registry, proxy, and offline settings apply. Deleting the cache is safe: versions come back when a project needs them. Where it lives: {@link generic:reference}.',
+          text: 'When a project that installs only `@astryxdesign/core` needs a version you do not have, Astryx installs that version once into a cache in your home folder and reuses it. It uses npm for that, so your npm registry, proxy, and offline settings apply. Deleting the cache is safe: versions come back when a project needs them. Where it lives: {@link generic:reference}.',
         },
       ],
     },
@@ -87,7 +87,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "Outside a project, your global install works offline. In a project, the project's own CLI or a cached version also works offline. When the project's version is neither installed nor cached and cannot be fetched, the project's own CLI answers if it installs one, else your global install, with a one-line warning; install the project's dependencies, or run again online. {@link generic:problems} has the exact message.",
+          text: "Outside a project, your global install works offline, and so does any project that installs its own CLI. A project that installs only Core needs its version installed or cached; when it is neither and cannot be fetched, your global install answers with a one-line warning, and Astryx waits 10 minutes before trying to download it again. Install the project's dependencies, or add the CLI to the project. {@link generic:problems} has the exact message.",
         },
       ],
     },

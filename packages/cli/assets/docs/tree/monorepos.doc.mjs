@@ -48,7 +48,7 @@ export const docs = {
           type: 'list',
           style: 'unordered',
           items: [
-            'A workspace member that declares Astryx is its own project, even when its packages are hoisted to the repository root: the version that matches its Core answers.',
+            'A workspace member that declares Astryx is its own project, even when its packages are hoisted to the repository root. A CLI installed at the root answers it, as it always has; a member with only its own Core and no CLI anywhere gets the CLI version equal to its Core.',
             'A folder without its own `package.json`, such as `src/` or `scripts/`, belongs to the project above it.',
             'A repository that builds the CLI itself, with the CLI in `packages/cli` next to Core in `packages/core`, runs that CLI.',
           ],
@@ -65,7 +65,7 @@ export const docs = {
           items: [
             "A folder inside another project, such as a nested app or a repository cloned into it, answers with the enclosing project's version.",
             'Folder names are compared the way your file system compares them, so a folder reached through a link, or typed in another letter case on macOS or Windows, answers as the folder does.',
-            "In a Yarn Plug'n'Play project, Astryx cannot see the project's own CLI, so the version that matches the project's Core answers from the cache. That is the same version whenever the project's CLI matches its Core.",
+            "In a Yarn Plug'n'Play project, Astryx cannot see the project's own CLI, so the CLI version equal to the project's Core answers from the cache. Run the project's CLI through Yarn (`yarn astryx`) to use it directly.",
           ],
         },
       ],

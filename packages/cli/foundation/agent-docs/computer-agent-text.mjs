@@ -13,9 +13,9 @@
  *   home folder, and the folder that must already exist for it to be linked
  *   (`null`: always). The writer, the remover, doctor, and the docs all read it.
  * - The text is version-free and names only stable entry points
- *   (`STABLE_COMMANDS`), so an older file never misleads. Two renderings exist
- *   while their wording is compared (`COMPUTER_AGENT_TEXT_VARIANTS`); `long` is
- *   the one written.
+ *   (`STABLE_COMMANDS`), so an older file never misleads. It is short: the
+ *   skill only has to say that Astryx is here, when to use it, and where to
+ *   start; the CLI's own docs carry the rest.
  * - The file keeps the Astryx markers, which tell a file Astryx wrote from one
  *   a person wrote, and records inside them a hash of its text, which tells an
  *   edited file from an older rendering. A file without the markers, an
@@ -110,9 +110,6 @@ export const STABLE_COMMANDS = Object.freeze([
   'help',
 ]);
 
-/** The renderings, while their wording is compared; the first is written. */
-export const COMPUTER_AGENT_TEXT_VARIANTS = Object.freeze(['long', 'short']);
-
 /**
  * When an agent should load the skill; the frontmatter `description`. One
  * sentence.
@@ -167,58 +164,27 @@ export function computerAgentCommand() {
 }
 
 /**
- * The body lines of a rendering, with `run` as the command.
+ * The body lines, with `run` as the command.
  * @param {string} run
- * @param {'long' | 'short'} variant
  * @returns {string[]}
  */
-function bodyLines(run, variant) {
-  const opening = [
+function bodyLines(run) {
+  return [
     'Astryx, a design system and UI library, is available on this computer.',
     'Use it when you build or change UI, pick components, or style or theme an app.',
     `Its docs, components, templates, and themes are all reachable through \`${run}\`. Start with \`${run} search '<what you need>'\`.`,
-  ];
-  if (variant === 'short') {
-    return [
-      ...opening,
-      `Then read \`${run} component <Name>\` or \`${run} docs <topic>\`, not the package's files.`,
-      "In a project, the project's version of Astryx answers automatically.",
-    ];
-  }
-  return [
-    ...opening,
-    '',
-    `Read docs with \`${run} docs <topic>\`, not by opening the package's files.`,
-    '',
-    'LOOK IT UP BEFORE YOU WRITE',
-    `1. \`${run} search '<words>'\`: components, templates, docs, and hooks.`,
-    `2. \`${run} component <Name>\`: props, variants, and examples for one component.`,
-    `3. \`${run} docs <topic>\`: guides such as getting-started, layout, and theme (\`${run} docs\` lists them).`,
-    `Never guess props: check \`${run} component <Name>\` first.`,
-    '',
-    'STARTING POINTS',
-    `- A page or a section: \`${run} build '<idea>'\` names a template to start from; \`${run} template <name> <path>\` copies it into the app.`,
-    `- Look and feel: \`${run} theme list\`, then \`${run} theme add <slug>\` in the app.`,
-    `- A new project: install \`@astryxdesign/core\` and \`@astryxdesign/cli\`, then run \`${run} init\`; \`${run} docs getting-started\` has the steps.`,
-    '',
-    'WHEN SOMETHING IS OFF',
-    `- \`${run} doctor\` checks the project, or this computer outside a project.`,
-    '',
-    'VERSIONS',
-    "- In a project, the project's version of Astryx answers automatically, and the project's own agent docs (AGENTS.md or CLAUDE.md) come first.",
-    '',
-    `\`${run} help\` lists every command; \`${run} docs global\` explains Astryx on this computer.`,
+    `Then read \`${run} component <Name>\` or \`${run} docs <topic>\`, not the package's files.`,
+    "In a project, the project's version of Astryx answers automatically.",
   ];
 }
 
 /**
  * The full skill file.
- * @param {{command?: string, variant?: 'long' | 'short'}} [options]
+ * @param {{command?: string}} [options]
  * @returns {string}
  */
 export function renderComputerAgentText({
   command = computerAgentCommand(),
-  variant = 'long',
 } = {}) {
   return withHash(
     [
@@ -230,7 +196,7 @@ export function renderComputerAgentText({
       '---',
       '',
       MARKER_START,
-      ...bodyLines(command, variant),
+      ...bodyLines(command),
       MARKER_END,
       '',
     ].join('\n'),

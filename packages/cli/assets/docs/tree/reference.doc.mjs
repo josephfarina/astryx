@@ -127,7 +127,7 @@ export const docs = {
           type: 'list',
           style: 'unordered',
           items: [
-            "`meta.answeredBy` on every successful `--json` result: `cli` (the version that answered), `core` (the Core it used, or `null`), and `copy`: `project` (the project's own CLI), `matched` (the version that matches the project, from the cache), `carried` (outside a project), or `fallback` (the version that matches the project could not be obtained, so the project's own CLI or your global install answered instead).",
+            "`meta.answeredBy` on every successful `--json` result: `cli` (the version that answered), `core` (the Core it used, or `null`), and `copy`: `project` (the project's own CLI), `matched` (the CLI version equal to the project's Core, for a project that installs only Core), `carried` (outside a project), or `fallback` (that version could not be obtained, so the astryx command you started answered instead).",
             '`meta.available` entries from `astryx discover` with `source: "installed for this computer"`: an integration installed next to your global install that the project could add, with its install command in `install`.',
           ],
         },
@@ -141,7 +141,7 @@ export const docs = {
           type: 'list',
           style: 'unordered',
           items: [
-            "`ERR_VERSIONS_UNAVAILABLE`: nothing can answer: the project's own CLI cannot start, or a command that needs Core outside a project cannot install it. When only the matching version is missing, the run answers anyway, with a warning. {@link generic:problems}",
+            '`ERR_VERSIONS_UNAVAILABLE`: nothing can answer, such as a command that needs Core outside a project that cannot install it. When only the matching version is missing, the run answers anyway, with a warning. {@link generic:problems}',
             '`ERR_PROJECT_REQUIRED`: a command that only works in a project ran outside one. Commands released before global mode keep the codes they already used: `theme use`, `theme remove`, and `theme add <slug>` use `ERR_THEME_INVALID`, `integration add` uses `ERR_FILE_NOT_FOUND`, `swizzle` uses `ERR_CORE_NOT_FOUND`, and `upgrade` uses `ERR_VERSION_DETECT`.',
           ],
         },
@@ -155,7 +155,7 @@ export const docs = {
           type: 'list',
           style: 'unordered',
           items: [
-            "Which version answers: in a project, the project's version; outside one, your global version. {@link generic:who-answers}",
+            "Which version answers: in a project, the project's own CLI (or, with only Core, the CLI version equal to it); outside one, your global version. {@link generic:who-answers}",
             'Commands that change a project write nothing outside one; `doctor`, `init`, and `theme add` do something else there. {@link namespace:commands}',
             'Integrations installed globally work only outside projects. {@link generic:computer-integrations}',
             'The programmatic API runs in your process with the package you import and never hands off to another version; with `cwd` outside a project, its functions answer as the commands do there. {@link namespace:api}',
@@ -172,7 +172,7 @@ export const docs = {
           style: 'unordered',
           items: [
             '**Global install**: the CLI installed for your computer with `npm i -g` or another package manager.',
-            "**The project's version**: the CLI version that matches the project's `@astryxdesign/core`; it answers every command in that project.",
+            "**The project's version**: the project's own CLI, or for a project that installs only Core, the CLI version equal to its Core; it answers every command in that project.",
             '**Cache**: the folder where Astryx keeps versions projects need but do not install.',
           ],
         },

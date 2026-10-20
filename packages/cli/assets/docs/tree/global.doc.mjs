@@ -37,7 +37,7 @@ export const docs = {
   blocks: [
     {
       type: 'prose',
-      text: 'Global mode means installing the Astryx CLI once for your computer, so the astryx command works everywhere: in your projects, in an empty folder, and for every coding agent. Inside a project, Astryx picks the version that matches the project, so your global install never changes what a project gets.',
+      text: "Global mode means installing the Astryx CLI once for your computer, so the astryx command works everywhere: in your projects, in an empty folder, and for every coding agent. Inside a project, the project's own version of Astryx answers, so your global install never changes what a project gets.",
     },
     {
       type: 'code',
@@ -69,7 +69,7 @@ export const docs = {
       rows: [
         [
           'Inside a project',
-          "The project's version: the one that matches its `@astryxdesign/core`.",
+          "The project's own CLI. A project that installs only `@astryxdesign/core` gets the CLI version equal to its Core.",
         ],
         ['Outside any project', 'Your global version.'],
         [

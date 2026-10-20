@@ -107,13 +107,13 @@ export const docs = {
         },
         {
           type: 'prose',
-          text: "The project needs a version you do not have, and Astryx could not get it, so the command still runs: the project's own CLI answers if it installs one, else your global install, as before global mode. Its answers may not match the project's Core until you fix the cause. With `--json`, `meta.answeredBy.copy` is `fallback`.",
+          text: "The project installs only Core (or its own CLI cannot start), needs a CLI version you do not have, and Astryx could not get it, so the command still runs: the astryx command you started answers, as before global mode. Its answers may not match the project's Core until you fix the cause. With `--json`, `meta.answeredBy.copy` is `fallback`. Astryx waits 10 minutes before trying the download again; adding the CLI to the project avoids it.",
         },
         {
           type: 'list',
           style: 'unordered',
           items: [
-            "The registry could not be reached: you are offline, or a proxy blocks it. Astryx installs with npm, so set npm's `proxy`, `https-proxy`, or `registry` in your `.npmrc`, or install the project's dependencies, including its matching CLI.",
+            "The registry could not be reached: you are offline, or a proxy blocks it. Astryx installs with npm, so set npm's `proxy`, `https-proxy`, or `registry` in your `.npmrc`, or add the CLI to the project and install its dependencies.",
             "The registry does not have it: a private registry without the Astryx packages. Point npm's registry for `@astryxdesign` at one that has them.",
             'The cache cannot be written: a read-only home folder, as in some containers. Point `XDG_CACHE_HOME` at a writable folder: {@link generic:ci-and-containers}.',
           ],
@@ -126,7 +126,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: "A run fails with `ERR_VERSIONS_UNAVAILABLE` only when nothing can answer: the project's own CLI is installed but cannot start (reinstall the project's dependencies), or a command that needs Core outside a project cannot install it.",
+          text: 'A run fails with `ERR_VERSIONS_UNAVAILABLE` only when nothing can answer: a command that needs Core outside a project cannot install it, or a version you requested exactly cannot be found.',
         },
       ],
     },

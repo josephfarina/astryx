@@ -13,7 +13,9 @@
 //   - that a fresh clone gets nothing written into it;
 //   - the daily update check and its notice when the registry's latest tag names a newer release (it
 //     installs nothing, and the installed release keeps answering);
-//   - offline: ERR_VERSIONS_UNAVAILABLE, quickly, with JSON intact;
+//   - offline, release not cached: the starting copy answers, with one warning line and
+//     meta.answeredBy.copy "fallback", and the failed install is not retried on the next run; a project whose
+//     own CLI cannot start gets the same;
 //   - stopping a run in the middle of a release install (Ctrl-C, and killing the CLI process alone): which
 //     package-manager processes are left, and whether the next run recovers;
 //   - `astryx init --user` / `--remove-agents` (files under the home folder, valid frontmatter, nothing in the project);
@@ -769,7 +771,27 @@ async function main() {
   // offline, cold cache
   {
     const home = newHome('offline');
-    const r = await astryx(['component', 'Typeahead', '--json'], {
+    // Core 0.7.0 needs release 0.7.0, which is not cached and cannot be
+    // fetched: the starting copy answers, as before global mode, and says so.
+    const t = await astryx(['--version'], {
+      cwd: core070,
+      env: homeEnv(home, OFFLINE),
+    });
+    const warnings = t.stderr
+      .split(/\r?\n/u)
+      .filter(line => line.includes('could not get Astryx'));
+    ok(
+      'offline, release not cached: the starting copy answers, with one warning line',
+      t.code === 0 &&
+        lastLine(t.stdout) === LABEL &&
+        warnings.length === 1 &&
+        /^astryx: could not get Astryx 0\.7\.0 to match this project's Core \(.+\); answering with CLI .+ instead$/u.test(
+          warnings[0],
+        ) &&
+        t.secs < 90,
+      `rc=${t.code} ${lastLine(t.stdout)} warnings=${warnings.length} ${t.secs}s`,
+    );
+    const r = await astryx(['docs', '--json'], {
       cwd: core070,
       env: homeEnv(home, OFFLINE),
     });
@@ -778,9 +800,54 @@ async function main() {
       j = JSON.parse(r.stdout);
     } catch {}
     ok(
-      'offline, release not cached: ERR_VERSIONS_UNAVAILABLE',
-      r.code !== 0 && j?.code === 'ERR_VERSIONS_UNAVAILABLE' && r.secs < 90,
-      `rc=${r.code} code=${j?.code} ${r.secs}s`,
+      'offline, release not cached: JSON intact, meta.answeredBy.copy is fallback',
+      r.code === 0 &&
+        j?.meta?.answeredBy?.copy === 'fallback' &&
+        j?.meta?.answeredBy?.cli === LABEL &&
+        r.secs < 90,
+      `rc=${r.code} answeredBy=${JSON.stringify(j?.meta?.answeredBy)} ${r.secs}s`,
+    );
+    // The failed install is remembered: the next offline run starts no
+    // install and prints no "installing" line.
+    const again = await astryx(['--version'], {
+      cwd: core070,
+      env: homeEnv(home, OFFLINE),
+    });
+    ok(
+      'offline, release not cached: the next run does not try the install again',
+      again.code === 0 &&
+        !/installing CLI release/u.test(again.stderr) &&
+        /could not get Astryx 0\.7\.0 /u.test(again.stderr) &&
+        again.secs < 20,
+      `rc=${again.code} ${again.secs}s stderr=${JSON.stringify(again.stderr.trim().slice(0, 200))}`,
+    );
+    // A project whose own CLI cannot start (no astryx command in its
+    // package): the release matching its Core answers instead; offline, the
+    // starting copy, with the same warning. Nothing on this path fails the run:
+    // ERR_VERSIONS_UNAVAILABLE is left for runs nothing can answer, which this
+    // script cannot set up on every operating system.
+    const broken = path.join(FX, 'broken-own-cli');
+    fs.rmSync(broken, {recursive: true, force: true});
+    fs.cpSync(core070, broken, {recursive: true});
+    const ownCli = path.join(broken, 'node_modules', '@astryxdesign', 'cli');
+    fs.rmSync(ownCli, {recursive: true, force: true});
+    fs.mkdirSync(ownCli, {recursive: true});
+    fs.writeFileSync(
+      path.join(ownCli, 'package.json'),
+      JSON.stringify({name: '@astryxdesign/cli', version: '0.7.0'}),
+    );
+    const n = await astryx(['docs', '--json'], {
+      cwd: broken,
+      env: homeEnv(home, OFFLINE),
+    });
+    let nj = null;
+    try {
+      nj = JSON.parse(n.stdout);
+    } catch {}
+    ok(
+      'a project whose own CLI cannot start: offline, the starting copy answers (copy fallback)',
+      n.code === 0 && nj?.meta?.answeredBy?.copy === 'fallback' && n.secs < 20,
+      `rc=${n.code} answeredBy=${JSON.stringify(nj?.meta?.answeredBy)} ${n.secs}s`,
     );
     const o = await astryx(['--version'], {
       cwd: empty,
@@ -904,17 +971,31 @@ async function main() {
         !fs.existsSync(path.join(cacheDirOf(home), 'releases', NEWER)),
       `latest=${latestOf()} answered ${lastLine(a.stdout)}`,
     );
+    // The CLI is installed into a throwaway npm prefix, not one npm uses by
+    // default, so the notice upgrades into that prefix, named by its real path
+    // (quoted when it holds a space).
+    const prefixForms = [
+      ...new Set([
+        PREFIX,
+        fs.realpathSync(PREFIX),
+        fs.realpathSync.native(PREFIX),
+      ]),
+    ].map(p => (/\s/.test(p) ? JSON.stringify(p) : p));
+    const notice = noticeOf(a);
     ok(
-      'update: one two-line notice after the first text run; none in JSON, in CI, or after',
-      JSON.stringify(noticeOf(a)) ===
-        JSON.stringify([
-          `A new release of Astryx is available: ${LABEL} → ${NEWER}`,
-          'To upgrade, run: npm i -g @astryxdesign/cli@latest',
-        ]) &&
+      'update: one two-line notice after the first text run, upgrading into the install prefix; none in JSON, in CI, or after',
+      notice.length === 2 &&
+        notice[0] ===
+          `A new release of Astryx is available: ${LABEL} → ${NEWER}` &&
+        prefixForms.some(
+          p =>
+            notice[1] ===
+            `To upgrade, run: npm i -g --prefix ${p} @astryxdesign/cli@latest`,
+        ) &&
         js.stderr.trim() === '' &&
         noticeOf(ci).length === 0 &&
         noticeOf(b).length === 0,
-      `notice=${JSON.stringify(noticeOf(a))} json-stderr=${JSON.stringify(js.stderr.trim().slice(0, 100))} ci=${noticeOf(ci).length} after=${noticeOf(b).length}`,
+      `notice=${JSON.stringify(notice)} prefix=${JSON.stringify(prefixForms)} json-stderr=${JSON.stringify(js.stderr.trim().slice(0, 100))} ci=${noticeOf(ci).length} after=${noticeOf(b).length}`,
     );
   }
 }

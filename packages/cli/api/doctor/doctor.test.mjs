@@ -192,6 +192,45 @@ describe('doctor — checkVersionAlignment', () => {
   });
 });
 
+describe("doctor — the project's own CLI and Core on different releases", () => {
+  const cli = JSON.parse(
+    fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+  ).version;
+  /** @param {string} core */
+  const at = core => {
+    const dir = mkProject({
+      'package-lock.json': '{}',
+      'node_modules/@astryxdesign/core/package.json': JSON.stringify({
+        name: '@astryxdesign/core',
+        version: core,
+      }),
+    });
+    return checkVersionAlignment({
+      cwd: dir,
+      coreDir: path.join(dir, 'node_modules/@astryxdesign/core'),
+      nodeVersion: '',
+      configPath: null,
+      configTheme: null,
+    });
+  };
+
+  it('warns on any difference, patch included, and names the align command', () => {
+    const older = at('0.0.1');
+    expect(older.status).toBe('warn');
+    expect(older.message).toContain(
+      `This project's CLI ${cli} answers it, but its Core is 0.0.1`,
+    );
+    expect(older.fix).toBe(
+      `To align them, run: npm install @astryxdesign/core@${cli}, then npx astryx upgrade --from 0.0.1 --apply.`,
+    );
+    const newer = at('99.0.0');
+    expect(newer.fix).toBe(
+      'To align them, run: npm install @astryxdesign/cli@99.0.0.',
+    );
+    expect(at(cli).status).toBe('pass');
+  });
+});
+
 describe('checkCliCommand', () => {
   it('is informational when no integration declares a command', () => {
     const dir = mkProject({'pnpm-lock.yaml': ''});

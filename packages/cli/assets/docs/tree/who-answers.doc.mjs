@@ -27,25 +27,25 @@ export const docs = {
     'project version',
   ],
   description:
-    'Inside a project, Astryx runs the version that matches the project, whichever astryx command you start. Outside a project, your global install answers. How to see which one did.',
+    "Inside a project, the project's own CLI answers, whichever astryx command you start; a project with only Core gets the CLI version equal to its Core. Outside a project, your global install answers. How to see which one did.",
   sections: [
     {
       id: 'in-a-project',
       title: "In a project, the project's version",
       content: [
         {
-          type: 'prose',
-          text: "Components come from `@astryxdesign/core`, and templates, docs, and agent guides come from the CLI. When the two versions differ, an agent can get code the project's Core rejects. So in a project, Astryx always runs the CLI version that matches the project's Core:",
-        },
-        {
           type: 'list',
           style: 'unordered',
           items: [
-            "The project installs the CLI at that version, as recommended: that CLI runs. When you type the global astryx command instead, it passes the run to the project's CLI, with the same arguments, input, output, and exit status, so either command gives the same answer.",
-            'The project installs another CLI version, or only Core: Astryx runs the matching version from its cache, installing it there the first time. Installing the matching CLI in the project avoids that download.',
-            'Nothing is installed yet, as in a fresh clone: the version comes from the Core version in the lockfile, else the newest one the declared range allows.',
-            '`astryx upgrade` follows the same rule, so it runs the codemods of the version that matches the Core you installed.',
+            "The project installs the CLI, as recommended: that CLI answers, whatever its version, as it always has. When you type the global astryx command instead, it passes the run to the project's CLI, with the same arguments, input, output, and exit status, so either command gives the same answer.",
+            "The project installs only Core: Astryx runs the CLI version equal to the project's Core, from its cache. Any command in such a project, even `astryx --version`, installs that version into the cache the first time. Adding the CLI to the project avoids that download.",
+            'Nothing is installed yet, as in a fresh clone: the version comes from the lockfile, else the newest one the declared range allows.',
+            "The project's CLI is installed but cannot start: the CLI version equal to the project's Core answers instead.",
           ],
+        },
+        {
+          type: 'prose',
+          text: "Components come from `@astryxdesign/core`, and templates, docs, and agent guides come from the CLI. When the project's CLI and Core are different versions, `astryx doctor` warns and prints the command that brings them to one version.",
         },
       ],
     },

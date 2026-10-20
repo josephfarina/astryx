@@ -17,7 +17,6 @@ import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
-  COMPUTER_AGENT_TEXT_VARIANTS,
   SKILL_LINKS,
   STABLE_COMMANDS,
   astryxOnSearchPath,
@@ -86,10 +85,9 @@ const isLinkToFolder = at =>
   fs.realpathSync(at) === fs.realpathSync(FOLDER());
 
 describe('renderComputerAgentText', () => {
-  it.each(COMPUTER_AGENT_TEXT_VARIANTS)(
-    '%s: a skill named astryx with a one-sentence when-to-use description, in strict YAML',
-    variant => {
-      const text = renderComputerAgentText({command: 'astryx', variant});
+  it('a skill named astryx with a one-sentence when-to-use description, in strict YAML', () => {
+    {
+      const text = renderComputerAgentText({command: 'astryx'});
       const [, front] = text.split('---\n');
       const meta = parseYaml(front);
       expect(meta.name).toBe('astryx');
@@ -108,30 +106,27 @@ describe('renderComputerAgentText', () => {
         'Use it when you build or change UI, pick components, or style or theme an app.',
       );
       expect(text).toContain("Start with `astryx search '<what you need>'`.");
-    },
-  );
+    }
+  });
 
-  it.each(COMPUTER_AGENT_TEXT_VARIANTS)(
-    '%s: is version-free and names only stable commands',
-    variant => {
-      const text = renderComputerAgentText({command: 'astryx', variant});
+  it('is version-free and names only stable commands', () => {
+    {
+      const text = renderComputerAgentText({command: 'astryx'});
       // No version string anywhere: not a release, a Node range, or a tag.
       expect(text).not.toMatch(/\bv?\d+\.\d+(\.\d+)?\b/u);
       expect(text).not.toMatch(/@(latest|next|canary)\b/u);
       const commands = [...text.matchAll(/`astryx ([a-z-]+)/gu)].map(m => m[1]);
       expect(commands.length).toBeGreaterThan(0);
       expect(commands.filter(c => !STABLE_COMMANDS.includes(c))).toEqual([]);
-    },
-  );
+    }
+  });
 
-  it('long is the default, and short stays short', () => {
-    expect(renderComputerAgentText({command: 'astryx'})).toBe(
-      renderComputerAgentText({command: 'astryx', variant: 'long'}),
+  it('stays short, and tells agents to read docs through the CLI', () => {
+    const text = renderComputerAgentText({command: 'astryx'});
+    expect(text.split('\n').length).toBeLessThanOrEqual(15);
+    expect(text).toContain(
+      "Then read `astryx component <Name>` or `astryx docs <topic>`, not the package's files.",
     );
-    const lines = (/** @type {'long' | 'short'} */ variant) =>
-      renderComputerAgentText({command: 'astryx', variant}).split('\n').length;
-    expect(lines('short')).toBeLessThanOrEqual(15);
-    expect(lines('long')).toBeLessThanOrEqual(40);
   });
 
   it("uses the host's door when one is set", () => {
