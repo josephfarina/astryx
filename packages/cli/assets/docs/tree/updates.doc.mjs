@@ -46,7 +46,7 @@ export const docs = {
           type: 'list',
           style: 'unordered',
           items: [
-            'The command is the one for the package manager that installed your global install: `npm i -g`, `pnpm add -g`, `yarn global add`, `bun add -g`, or `volta install`.',
+            "The command is the one for the package manager that installed your global install: `npm i -g`, `pnpm add -g`, `yarn global add`, `bun add -g`, or `volta install`. A global folder moved with the package manager's own setting (`BUN_INSTALL`, Yarn's `global-folder`, `PNPM_HOME`, or npm's prefix) counts while that setting names it; an app's own copy never runs the update check.",
             'When the newest version needs a newer Node than your computer runs, the second line says which Node to install first.',
             "Inside a project, the notice is about the project's version, and names the project's install and `upgrade` commands. The install command always adds the CLI next to Core, so a project that installed only Core gets its own CLI too, as recommended.",
           ],

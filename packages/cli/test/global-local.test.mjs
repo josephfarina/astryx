@@ -1584,7 +1584,7 @@ describe.skipIf(!POSIX)(
       expect(later.lines.filter(l => l.includes('installing'))).toHaveLength(1);
     });
 
-    it('G50 a global copy in a Bun global folder moved with BUN_INSTALL: recognized as global; the notice reinstalls into that folder', () => {
+    it('G50 a global copy in a Bun global folder moved with BUN_INSTALL: global only while BUN_INSTALL names it; an app under a folder named install/global is not', () => {
       const pc = computer();
       const bunHome = path.join(pc.home, 'mybun');
       const global = path.join(bunHome, 'install', 'global');
@@ -1596,47 +1596,89 @@ describe.skipIf(!POSIX)(
         path.join(global, 'node_modules', '@astryxdesign', 'cli'),
         '9.0.0',
       );
-      expect(isGlobalCopy(copy.dir, pc.astryxCache)).toBe(true);
+      const where = {home: pc.home, platform: /** @type {const} */ ('linux')};
       expect(
-        globalUpgradeCommand(copy.dir, {
-          home: pc.home,
-          platform: 'linux',
-          env: {},
-        }),
-      ).toBe('BUN_INSTALL=~/mybun bun add -g @astryxdesign/cli@latest');
-      expect(
-        globalUpgradeCommand(copy.dir, {
-          home: pc.home,
-          platform: 'linux',
+        isGlobalCopy(copy.dir, pc.astryxCache, {
+          ...where,
           env: {BUN_INSTALL: bunHome},
         }),
+      ).toBe(true);
+      expect(
+        globalUpgradeCommand(copy.dir, {...where, env: {BUN_INSTALL: bunHome}}),
       ).toBe('bun add -g @astryxdesign/cli@latest');
-    });
-
-    it('G51 a global copy in a Yarn 1 global folder moved with global-folder: recognized as global, the notice names the folder; a project with the same files is not', () => {
-      const pc = computer();
-      const global = path.join(pc.home, 'myyarn-global');
-      writeJson(path.join(global, 'package.json'), {
+      // Nothing names that folder: not global, so no check and no skill.
+      expect(isGlobalCopy(copy.dir, pc.astryxCache, {...where, env: {}})).toBe(
+        false,
+      );
+      // An npm app whose folder happens to end in install/global.
+      const app = path.join(pc.home, 'work', 'install', 'global');
+      writeJson(path.join(app, 'package.json'), {
+        name: 'app',
         dependencies: {'@astryxdesign/cli': '9.0.0'},
       });
-      fs.writeFileSync(path.join(global, 'yarn.lock'), '');
-      const copy = placeCli(
-        path.join(global, 'node_modules', '@astryxdesign', 'cli'),
+      const own = placeCli(
+        path.join(app, 'node_modules', '@astryxdesign', 'cli'),
         '9.0.0',
       );
-      expect(isGlobalCopy(copy.dir, pc.astryxCache)).toBe(true);
-      expect(
-        globalUpgradeCommand(copy.dir, {
-          home: pc.home,
-          platform: 'linux',
-          env: {},
-        }),
-      ).toBe(
-        'yarn global add --global-folder ~/myyarn-global @astryxdesign/cli@latest',
+      expect(isGlobalCopy(own.dir, pc.astryxCache, {...where, env: {}})).toBe(
+        false,
       );
-      // The same manifest in a folder with a project's own files is a project.
-      fs.mkdirSync(path.join(global, 'src'));
-      expect(isGlobalCopy(copy.dir, pc.astryxCache)).toBe(false);
+    });
+
+    it("G51 a global copy in a Yarn 1 global folder moved with global-folder: global when Yarn's settings name it; an app made with yarn add alone is not", () => {
+      const pc = computer();
+      const global = path.join(pc.home, 'myyarn-global');
+      const yarnLike = (/** @type {string} */ dir) => {
+        writeJson(path.join(dir, 'package.json'), {
+          dependencies: {'@astryxdesign/cli': '9.0.0'},
+        });
+        fs.writeFileSync(path.join(dir, 'yarn.lock'), '');
+        return placeCli(
+          path.join(dir, 'node_modules', '@astryxdesign', 'cli'),
+          '9.0.0',
+        );
+      };
+      const copy = yarnLike(global);
+      const where = {
+        home: pc.home,
+        platform: /** @type {const} */ ('linux'),
+        env: {},
+      };
+      // Not named by Yarn's settings yet: not global.
+      expect(isGlobalCopy(copy.dir, pc.astryxCache, where)).toBe(false);
+      // `yarn config set global-folder ~/myyarn-global` writes ~/.yarnrc.
+      fs.writeFileSync(
+        path.join(pc.home, '.yarnrc'),
+        'global-folder "~/myyarn-global"\n',
+      );
+      expect(isGlobalCopy(copy.dir, pc.astryxCache, where)).toBe(true);
+      expect(globalUpgradeCommand(copy.dir, where)).toBe(
+        'yarn global add @astryxdesign/cli@latest',
+      );
+      // And through the environment.
+      fs.rmSync(path.join(pc.home, '.yarnrc'));
+      expect(
+        isGlobalCopy(copy.dir, pc.astryxCache, {
+          ...where,
+          env: {YARN_GLOBAL_FOLDER: global},
+        }),
+      ).toBe(true);
+      // A fresh app made with `yarn add @astryxdesign/core @astryxdesign/cli`
+      // holds the same files: never global.
+      const app = yarnLike(path.join(pc.home, 'my-app'));
+      expect(isGlobalCopy(app.dir, pc.astryxCache, where)).toBe(false);
+      // Its own CLI, run in it, starts no update check and writes no skill.
+      const r = run(app.bin, ['--version'], {
+        cwd: path.join(pc.home, 'my-app'),
+        pc,
+      });
+      expect(r.status).toBe(0);
+      expect(
+        fs.existsSync(path.join(pc.home, '.agents', 'skills', 'astryx')),
+      ).toBe(false);
+      expect(
+        fs.existsSync(path.join(pc.home, '.config', 'astryx', 'state.json')),
+      ).toBe(false);
     });
   },
 );

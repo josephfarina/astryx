@@ -31,6 +31,7 @@
  */
 
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   readReleaseFacts,
@@ -100,44 +101,163 @@ const GLOBAL_OWNER_PATTERNS = [
 ];
 
 /**
- * A package manager's global folder, recognized by its layout, so a folder
- * moved by `BUN_INSTALL` or Yarn's `global-folder` counts too: Bun's
- * `<BUN_INSTALL>/install/global`, pnpm's `<home>/global/<n>`, and Yarn 1's
- * global folder, which holds only a package.json with nothing but its
- * dependencies (no name or version), a yarn.lock, and node_modules: a project
- * holds its own files beside them.
+ * Where a global install's settings come from: the home folder, the
+ * environment, and the platform. Defaults to this process's.
+ * @typedef {{home?: string, env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform}} GlobalWhere
+ */
+
+/**
+ * The value a line `<key> <value>` or `<key>=<value>` sets in a package
+ * manager's settings file (`.yarnrc`, `.npmrc`, `bunfig.toml`), unquoted, or
+ * null.
+ * @param {string} file
+ * @param {string} key
+ * @returns {string | null}
+ */
+function settingIn(file, key) {
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  const match = new RegExp(
+    `^\\s*${escaped}\\s*(?:=|\\s)\\s*(.+?)\\s*$`,
+    'mu',
+  ).exec(text);
+  if (!match) return null;
+  return match[1].replace(/^(["'])(.*)\1$/u, '$2');
+}
+
+/**
+ * An absolute folder from a setting, with `~` for the home folder; null for a
+ * relative or empty one.
+ * @param {string | null | undefined} value
+ * @param {string} home
+ * @param {NodeJS.Platform} platform
+ * @returns {string | null}
+ */
+function absoluteFolder(value, home, platform) {
+  if (!value) return null;
+  const paths = platform === 'win32' ? path.win32 : path.posix;
+  const expanded = value.startsWith('~')
+    ? paths.join(home, value.slice(1))
+    : value;
+  return paths.isAbsolute(expanded) ? paths.normalize(expanded) : null;
+}
+
+/**
+ * The global folders the package managers' own settings name on this
+ * computer, read the way each package manager reads them, never guessed from
+ * a folder's layout:
+ * - Bun: `$BUN_INSTALL/install/global`, else `~/.bun/install/global`, and a
+ *   `globalDir` in `~/.bunfig.toml` or `$XDG_CONFIG_HOME/.bunfig.toml`.
+ * - Yarn 1: the `global-folder` setting (`YARN_GLOBAL_FOLDER`,
+ *   `npm_config_global_folder`, or `global-folder` in `~/.yarnrc`), else
+ *   `<data folder>/global`: `%LOCALAPPDATA%\Yarn\Data` on Windows,
+ *   `$XDG_DATA_HOME/yarn`, else `~/.config/yarn`.
+ * - pnpm: `<PNPM_HOME>/global`, else `<data folder>/global` (`$XDG_DATA_HOME/pnpm`,
+ *   else `%LOCALAPPDATA%\pnpm`, `~/Library/pnpm`, or `~/.local/share/pnpm`), and a
+ *   `global-dir` in `~/.npmrc` or pnpm's `rc` file; a global install is a
+ *   numbered folder below it.
+ * @param {GlobalWhere} [where]
+ * @returns {Array<{manager: 'bun' | 'yarn' | 'pnpm', folder: string}>}
+ */
+export function configuredGlobalFolders(where = {}) {
+  const {
+    home = os.homedir(),
+    env = process.env,
+    platform = process.platform,
+  } = where;
+  const paths = platform === 'win32' ? path.win32 : path.posix;
+  const abs = (/** @type {string | null | undefined} */ value) =>
+    absoluteFolder(value, home, platform);
+  const xdgConfig = abs(env.XDG_CONFIG_HOME) ?? paths.join(home, '.config');
+  const xdgData = abs(env.XDG_DATA_HOME);
+  const localAppData =
+    abs(env.LOCALAPPDATA) ?? paths.join(home, 'AppData', 'Local');
+  /** @type {Array<{manager: 'bun' | 'yarn' | 'pnpm', folder: string}>} */
+  const out = [];
+  // Bun
+  out.push({
+    manager: 'bun',
+    folder: paths.join(
+      abs(env.BUN_INSTALL) ?? paths.join(home, '.bun'),
+      'install',
+      'global',
+    ),
+  });
+  for (const file of [
+    paths.join(home, '.bunfig.toml'),
+    paths.join(xdgConfig, '.bunfig.toml'),
+  ]) {
+    const dir = abs(settingIn(file, 'globalDir'));
+    if (dir) out.push({manager: 'bun', folder: dir});
+  }
+  // Yarn 1
+  const yarnSetting =
+    abs(env.YARN_GLOBAL_FOLDER) ??
+    abs(env.npm_config_global_folder) ??
+    abs(settingIn(paths.join(home, '.yarnrc'), 'global-folder'));
+  const yarnData =
+    platform === 'win32'
+      ? paths.join(localAppData, 'Yarn', 'Data')
+      : xdgData
+        ? paths.join(xdgData, 'yarn')
+        : paths.join(home, '.config', 'yarn');
+  out.push({
+    manager: 'yarn',
+    folder: yarnSetting ?? paths.join(yarnData, 'global'),
+  });
+  // pnpm
+  // pnpm's data folder: PNPM_HOME, else $XDG_DATA_HOME/pnpm on any platform,
+  // else the platform's own.
+  const pnpmHome =
+    abs(env.PNPM_HOME) ??
+    (xdgData
+      ? paths.join(xdgData, 'pnpm')
+      : platform === 'win32'
+        ? paths.join(localAppData, 'pnpm')
+        : platform === 'darwin'
+          ? paths.join(home, 'Library', 'pnpm')
+          : paths.join(home, '.local', 'share', 'pnpm'));
+  out.push({manager: 'pnpm', folder: paths.join(pnpmHome, 'global')});
+  for (const file of [
+    paths.join(home, '.npmrc'),
+    paths.join(xdgConfig, 'pnpm', 'rc'),
+  ]) {
+    const dir = abs(settingIn(file, 'global-dir'));
+    if (dir) out.push({manager: 'pnpm', folder: dir});
+  }
+  return out;
+}
+
+/**
+ * The package manager's global folder that holds the CLI at `root`, when the
+ * package manager's own settings name that folder (configuredGlobalFolders);
+ * null otherwise. A folder that only looks like one, such as an app made with
+ * `yarn add` alone or one under a folder named `install/global`, is not.
  * @param {string} root the CLI package's real folder
+ * @param {GlobalWhere} [where]
  * @returns {{manager: 'bun' | 'pnpm' | 'yarn', folder: string} | null}
  */
-export function globalFolderOf(root) {
+export function globalFolderOf(root, where = {}) {
   const place = installPlaceOf(root);
   if (place.runner || !place.owner) return null;
   const owner = place.owner;
-  if (/[\\/]install[\\/]global$/i.test(owner)) {
-    return {manager: 'bun', folder: owner};
-  }
-  if (/[\\/]yarn[\\/](?:data[\\/])?global$/i.test(owner)) {
-    return {manager: 'yarn', folder: owner};
-  }
-  if (GLOBAL_OWNER_PATTERNS[0].test(owner)) {
-    return {manager: 'pnpm', folder: owner};
-  }
-  const manifest = readJson(path.join(owner, 'package.json'));
-  const bare =
-    manifest !== null &&
-    typeof manifest === 'object' &&
-    Object.keys(manifest).every(key => key === 'dependencies');
-  if (bare && fs.existsSync(path.join(owner, 'yarn.lock'))) {
-    /** @type {string[]} */
-    let entries;
-    try {
-      entries = fs.readdirSync(owner);
-    } catch {
-      return null;
-    }
-    const yarnGlobal = new Set(['package.json', 'yarn.lock', 'node_modules']);
-    if (entries.every(entry => yarnGlobal.has(entry))) {
-      return {manager: 'yarn', folder: owner};
+  const platform = where.platform ?? process.platform;
+  for (const known of configuredGlobalFolders(where)) {
+    // Compared as real folders, so a linked home folder reads the same.
+    const folder = real(known.folder);
+    if (known.manager === 'pnpm') {
+      // `<global-dir>/<n>` before pnpm 11, `<global-dir>/v<n>/<id>` since.
+      const rel = relativeWithin(folder, owner, platform);
+      if (rel !== null && /^v?\d+(?:[\\/][^\\/]+)?$/u.test(rel)) {
+        return {manager: 'pnpm', folder: owner};
+      }
+    } else if (samePath(folder, owner, platform)) {
+      return {manager: known.manager, folder: owner};
     }
   }
   return null;
@@ -150,7 +270,9 @@ const RUNNER_CACHE =
 /**
  * Where an installed CLI package lives: its owner, the folder that holds the
  * `node_modules` it is in (above pnpm's `.pnpm` store), and whether that owner
- * is a package manager's global folder by name. Pure: reads no file, and
+ * is named like a package manager's default global folder (`knownGlobal`, a
+ * hint only: isGlobalCopy decides from the package managers' settings). Pure:
+ * reads no file, and
  * accepts either separator, so Windows paths read the same on every platform.
  * @param {string} root the package's real folder
  * @returns {{runner: boolean, owner: string | null, knownGlobal: boolean}}
@@ -185,21 +307,25 @@ export function installPlaceOf(root) {
  * (`npm i -g`, `pnpm add -g`, `yarn global add`, `bun add -g`, Volta)?
  *
  * Read from where the package lives: in a `node_modules` folder whose owner
- * holds no package.json (npm's global folder), or whose owner is one of the
- * package managers' global folders. A copy in a project, in a package
- * runner's temporary install, or in the release cache is not.
+ * holds no package.json (npm's global folder), or whose owner is a global
+ * folder a package manager's own settings name (globalFolderOf). A copy in a
+ * project, in a package runner's temporary install, or in the release cache
+ * is not, and when unsure the answer is no: a copy that is not global runs no
+ * update check and writes no agent skill.
  *
  * @param {string} cliRoot
  * @param {string} [cacheDir]
+ * @param {GlobalWhere} [where]
  * @returns {boolean}
  */
-export function isGlobalCopy(cliRoot, cacheDir = userCacheDir()) {
+export function isGlobalCopy(cliRoot, cacheDir = userCacheDir(), where = {}) {
   const root = real(cliRoot);
   const place = installPlaceOf(root);
   if (place.runner || !place.owner || isInReleaseCache(root, cacheDir)) {
     return false;
   }
-  if (place.knownGlobal || globalFolderOf(root)) return true;
+  if (globalFolderOf(root, where)) return true;
+  // npm's global folder holds no package.json; a project always has one.
   return !fs.existsSync(path.join(place.owner, 'package.json'));
 }
 

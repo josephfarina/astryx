@@ -151,25 +151,11 @@ export function globalUpgradeCommand(cliRoot, where = {}) {
     platform = process.platform,
     env = process.env,
   } = where;
-  const global = globalFolderOf(at);
-  if (global?.manager === 'bun') {
-    // `bun add -g` installs into `$BUN_INSTALL/install/global` (`~/.bun` by
-    // default): name the folder when it is a moved one BUN_INSTALL does not
-    // point at now.
-    const paths = platform === 'win32' ? path.win32 : path.posix;
-    const bunHome = paths.dirname(paths.dirname(global.folder));
-    const moved =
-      paths.basename(bunHome) !== '.bun' &&
-      !(env.BUN_INSTALL && samePath(bunHome, env.BUN_INSTALL, platform));
-    return moved && platform !== 'win32'
-      ? `BUN_INSTALL=${typedPath(bunHome, home)} bun add -g ${LATEST}`
-      : `bun add -g ${LATEST}`;
-  }
-  if (global?.manager === 'yarn') {
-    return /[\\/]yarn[\\/](?:data[\\/])?global$/iu.test(global.folder)
-      ? `yarn global add ${LATEST}`
-      : `yarn global add --global-folder ${typedPath(global.folder, platform === 'win32' ? null : home)} ${LATEST}`;
-  }
+  const global = globalFolderOf(at, {home, platform, env});
+  // Each reads the same settings that named its global folder, so its plain
+  // command reinstalls into that folder.
+  if (global?.manager === 'bun') return `bun add -g ${LATEST}`;
+  if (global?.manager === 'yarn') return `yarn global add ${LATEST}`;
   if (
     global?.manager === 'pnpm' ||
     /[\\/]pnpm[\\/]|[\\/]global[\\/]v?\d+[\\/]/iu.test(at)
@@ -180,22 +166,6 @@ export function globalUpgradeCommand(cliRoot, where = {}) {
   return prefix
     ? `npm i -g --prefix ${prefix} ${LATEST}`
     : `npm i -g ${LATEST}`;
-}
-
-/**
- * A folder as a person types it: `~` for the home folder when given, and
- * quoted when it holds a space.
- * @param {string} dir
- * @param {string | null} home
- * @returns {string}
- */
-function typedPath(dir, home) {
-  if (home) {
-    const rel = path.relative(home, dir);
-    if (rel === '') return '~';
-    if (!rel.startsWith('..') && !path.isAbsolute(rel)) return `~/${rel}`;
-  }
-  return /\s/.test(dir) ? JSON.stringify(dir) : dir;
 }
 
 /**

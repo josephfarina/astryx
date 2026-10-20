@@ -309,8 +309,16 @@ describe('isGlobalCopy', () => {
       if (withPkg) writeJson(path.join(owner, 'package.json'), {name: 'owner'});
       return installStandInCli(owner, '0.7.2');
     };
-    expect(isGlobalCopy(at('usr/lib'), cacheDir)).toBe(true);
-    expect(isGlobalCopy(at('pnpm/global/5', true), cacheDir)).toBe(true);
+    // The package managers' settings, as on a computer whose home is `base`.
+    const where = {
+      home: base,
+      platform: /** @type {const} */ ('linux'),
+      env: {PNPM_HOME: path.join(base, 'share/pnpm')},
+    };
+    expect(isGlobalCopy(at('usr/lib'), cacheDir, where)).toBe(true);
+    expect(isGlobalCopy(at('share/pnpm/global/5', true), cacheDir, where)).toBe(
+      true,
+    );
     // pnpm 11+: the global packages live in a store folder under global/v11/<id>.
     const pnpmOwner = path.join(base, 'share/pnpm/global/v11/2f9c1a');
     fs.mkdirSync(pnpmOwner, {recursive: true});
@@ -324,13 +332,24 @@ describe('isGlobalCopy', () => {
       '@astryxdesign+cli@0.7.2',
     );
     fs.mkdirSync(pnpmStore, {recursive: true});
-    expect(isGlobalCopy(installStandInCli(pnpmStore, '0.7.2'), cacheDir)).toBe(
+    expect(
+      isGlobalCopy(installStandInCli(pnpmStore, '0.7.2'), cacheDir, where),
+    ).toBe(true);
+    expect(isGlobalCopy(at('.config/yarn/global', true), cacheDir, where)).toBe(
       true,
     );
-    expect(isGlobalCopy(at('yarn/global', true), cacheDir)).toBe(true);
-    expect(isGlobalCopy(at('.bun/install/global', true), cacheDir)).toBe(true);
-    expect(isGlobalCopy(at('app', true), cacheDir)).toBe(false);
-    expect(isGlobalCopy(at('npm/_npx/123', true), cacheDir)).toBe(false);
+    expect(isGlobalCopy(at('.bun/install/global', true), cacheDir, where)).toBe(
+      true,
+    );
+    // Named like one, but no package manager's settings name it.
+    expect(isGlobalCopy(at('other/pnpm/global/5', true), cacheDir, where)).toBe(
+      false,
+    );
+    expect(isGlobalCopy(at('other/yarn/global', true), cacheDir, where)).toBe(
+      false,
+    );
+    expect(isGlobalCopy(at('app', true), cacheDir, where)).toBe(false);
+    expect(isGlobalCopy(at('npm/_npx/123', true), cacheDir, where)).toBe(false);
     const seeded = seedRelease(cacheDir, '0.7.2');
     expect(
       isGlobalCopy(

@@ -209,13 +209,17 @@ describe('the lines', () => {
 
   it('name the package manager that installed the global copy', () => {
     const at = (/** @type {string} */ p) =>
-      globalUpgradeCommand(path.join(path.sep, ...p.split('/')));
+      globalUpgradeCommand(path.join(path.sep, ...p.split('/')), {
+        home: '/home/a',
+        platform: 'linux',
+        env: {PNPM_HOME: '/home/a/pn'},
+      });
     expect(at('usr/local/lib/node_modules/@astryxdesign/cli')).toBe(
       'npm i -g @astryxdesign/cli@latest',
     );
-    expect(
-      at('home/a/.local/share/pnpm/global/5/node_modules/@astryxdesign/cli'),
-    ).toBe('pnpm add -g @astryxdesign/cli@latest');
+    expect(at('home/a/pn/global/5/node_modules/@astryxdesign/cli')).toBe(
+      'pnpm add -g @astryxdesign/cli@latest',
+    );
     expect(at('home/a/pn/global/v11/3f2a/node_modules/@astryxdesign/cli')).toBe(
       'pnpm add -g @astryxdesign/cli@latest',
     );
