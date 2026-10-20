@@ -55,5 +55,15 @@ Cycles through slides one at a time. Use it for a small set of related cards.
         },
       ],
     },
+    {
+      id: 'global-mode',
+      title: 'In global mode',
+      content: [
+        {
+          type: 'prose',
+          text: 'In global mode: to check your package in an app, install it in that app; a copy installed for your computer is not used inside a project. To check it outside projects, install it for your computer beside the CLI. See {@link namespace:global} and {@link generic:global-integrations}.',
+        },
+      ],
+    },
   ],
 };

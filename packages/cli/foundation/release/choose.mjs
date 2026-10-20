@@ -112,10 +112,14 @@ export function installPlaceOf(root) {
   const at = parts.lastIndexOf('node_modules');
   if (at < 1) return {runner: false, owner: null, knownGlobal: false};
   let owner = parts.slice(0, at).join(sep) || sep;
-  // pnpm keeps the real folder in `<owner>/node_modules/.pnpm/<id>/node_modules`.
+  // pnpm keeps the real folder in `<owner>/node_modules/.pnpm/<id>/node_modules`,
+  // or, for its global folder before pnpm 11, in `<owner>/.pnpm/<id>/node_modules`.
   const pnpmAt = parts.lastIndexOf('.pnpm');
-  if (pnpmAt > 0 && parts[pnpmAt - 1] === 'node_modules') {
-    owner = parts.slice(0, pnpmAt - 1).join(sep) || sep;
+  if (pnpmAt > 0 && pnpmAt < at) {
+    owner =
+      parts
+        .slice(0, parts[pnpmAt - 1] === 'node_modules' ? pnpmAt - 1 : pnpmAt)
+        .join(sep) || sep;
   }
   return {
     runner: false,

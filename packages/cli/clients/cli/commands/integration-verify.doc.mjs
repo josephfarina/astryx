@@ -20,4 +20,10 @@ export const doc = {
     {code: 1, when: 'the tarball is incomplete or invalid'},
   ],
   related: ['integration add', 'doctor integration validate'],
+  notes: [
+    {
+      type: 'prose',
+      text: "In global mode: outside an integration package, integration verify writes nothing and reports one failed check, `no_package`. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:global-integrations}.",
+    },
+  ],
 };

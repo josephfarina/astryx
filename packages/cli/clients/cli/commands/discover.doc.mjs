@@ -18,6 +18,7 @@ export const doc = {
     'Browse and search integrations: the ones you have and the ones you could add',
   description:
     'Lists the integrations this project loads and, when it has a discover source, the ones it could add, with what each one adds. ' +
+    'Integrations installed for the computer, beside the CLI installed for it, load outside a project; inside one they are listed as ones the project could add, with its install command. ' +
     'A package query shows one package: what it adds, every version a source knows, and the command that adds it. ' +
     "An @scope/name/Component path prints an installed component's doc; any other item path shows that item. " +
     'Anything else, even an exact component name, searches every item and package and lists the matches. Discover only reads: your package manager installs, updates, and removes packages.',
@@ -87,4 +88,10 @@ export const doc = {
     },
   ],
   related: ['component', 'search', 'template'],
+  notes: [
+    {
+      type: 'prose',
+      text: "In global mode: outside a project, integrations installed for your computer are listed as installed and their items show up; inside a project only the project's integrations are, and the ones installed for your computer are listed as available with the project's install command. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:computer-integrations}.",
+    },
+  ],
 };

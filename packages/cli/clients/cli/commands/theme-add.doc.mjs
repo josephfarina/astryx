@@ -47,4 +47,10 @@ export const doc = {
     },
   ],
   related: ['theme list', 'theme remove', 'theme use', 'theme eject'],
+  notes: [
+    {
+      type: 'prose',
+      text: "In global mode: outside a project, theme add with no slug lists the themes available, as in a new project; given a slug, it writes nothing and names the app project it needs. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:who-answers}.",
+    },
+  ],
 };

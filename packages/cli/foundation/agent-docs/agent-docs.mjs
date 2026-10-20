@@ -426,6 +426,9 @@ export function generateCompressedIndex(
     lines.push(
       'Inside a project with its own Astryx agent docs (the Astryx block in its AGENTS.md or CLAUDE.md), follow those instead: they match that project\'s release.',
     );
+    lines.push(
+      'How the CLI answers in every folder, and why: `astryx docs cli/global`.',
+    );
   } else {
     // Component count from live discovery
     let componentCount = '90+';

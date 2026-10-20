@@ -85,5 +85,15 @@ Declare theme root ./themes in astryx.integration.mjs.
         },
       ],
     },
+    {
+      id: 'global-mode',
+      title: 'In global mode',
+      content: [
+        {
+          type: 'prose',
+          text: 'In global mode: when users install your package for their computer, beside the global CLI, your themes are listed in folders outside any project, where `theme add` lists but writes nothing; inside a project, only if the project installs your package. See {@link namespace:global} and {@link generic:global-integrations}.',
+        },
+      ],
+    },
   ],
 };

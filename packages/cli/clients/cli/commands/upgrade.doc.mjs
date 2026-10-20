@@ -119,6 +119,10 @@ export const doc = {
   ],
   related: ['init', 'doctor'],
   notes: [
+    {
+      type: 'prose',
+      text: "In global mode: inside a project, upgrade always runs the codemods of the release equal to the project's installed Core, whichever copy of the CLI you start. Outside a project it lists the codemods this release ships, finds no copied compositions, and a migration writes nothing and fails with `ERR_VERSION_DETECT`. See {@link namespace:global} and {@link generic:who-answers}.",
+    },
     {type: 'heading', level: 3, text: 'Protected files'},
     {
       type: 'prose',

@@ -301,6 +301,7 @@ describe('doctor outside a project (own)', () => {
         'answering-release',
         'newest-release',
         'cli-on-path',
+        'computer-integrations',
         'computer-agent-text',
       ]);
       expect(checks.every(c => c.status !== 'fail')).toBe(true);

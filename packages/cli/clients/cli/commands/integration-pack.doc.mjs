@@ -28,4 +28,10 @@ export const doc = {
     },
   ],
   related: ['integration verify'],
+  notes: [
+    {
+      type: 'prose',
+      text: "In global mode: outside an integration package, integration pack writes nothing and reports one failed check, `no_package`. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:global-integrations}.",
+    },
+  ],
 };

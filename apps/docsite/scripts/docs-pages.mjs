@@ -27,7 +27,8 @@ export const GUIDE_PAGE_NAMESPACES = new Set(['cli']);
 /**
  * The pages a root namespace in GUIDE_PAGE_NAMESPACES shows, as the docsite
  * listed them before the CLI's integration guide was split into short guides:
- * "CLI Integrations" and "Writing docs". Each is one full page of the
+ * "CLI Integrations" and "Writing docs", and "Use Astryx globally", whose
+ * guides are short pages the CLI keeps under `cli/global`. Each is one full page of the
  * namespace at `route` (minus the routes in `except`, which another page
  * holds), at `slug`, so every guide slug below it redirects to its section
  * there. `aliases` are older slugs that redirect to the page.
@@ -49,6 +50,12 @@ export const GUIDE_NAMESPACE_PAGES = new Map([
         slug: 'cli-writing-docs',
         title: 'Writing docs',
         aliases: ['cli-integrations-docs-add-a-topic'],
+      },
+      {
+        route: 'cli/global',
+        slug: 'cli-global',
+        title: 'Use Astryx globally',
+        aliases: ['cli-install-once'],
       },
     ],
   ],

@@ -100,4 +100,10 @@ export const doc = {
     },
   ],
   related: ['doctor', 'upgrade', 'build', 'theme'],
+  notes: [
+    {
+      type: 'prose',
+      text: "In global mode: outside a project, init writes the agent docs into the folder and prints no getting-started steps. `--user` writes only the agent guide for your computer, in any folder, and is never handed to a project's own CLI. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:computer-agent-guide}.",
+    },
+  ],
 };

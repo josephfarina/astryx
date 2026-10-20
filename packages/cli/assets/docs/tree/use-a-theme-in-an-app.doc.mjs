@@ -64,5 +64,15 @@ export const productTheme = defineTheme({
         },
       ],
     },
+    {
+      id: 'global-mode',
+      title: 'In global mode',
+      content: [
+        {
+          type: 'prose',
+          text: 'In global mode: to use a theme in an app, install its package in that app; a copy installed for your computer is not used inside a project. See {@link namespace:global} and {@link generic:global-integrations}.',
+        },
+      ],
+    },
   ],
 };

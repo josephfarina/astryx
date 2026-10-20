@@ -17,6 +17,10 @@ export const docs = {
   blocks: [
     {
       type: 'prose',
+      text: "In global mode: a manifest loads the same way when users install your package for their computer, and applies in folders outside any project; peer ranges are checked against the global CLI's release. See {@link namespace:global} and {@link generic:global-integrations}.",
+    },
+    {
+      type: 'prose',
       text: 'Beyond the things you ship, an integration can set how it behaves in an app: the guidance it gives the AI agents working there, the command its users run the CLI with, and the record it keeps of each CLI run. Open one below to set it up.',
     },
   ],

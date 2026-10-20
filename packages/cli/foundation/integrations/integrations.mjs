@@ -76,6 +76,9 @@ import {resolveProviders} from './provider-resolution.mjs';
  * @property {boolean} [__autolinked] loaded because the project declares the
  *   package as a dependency and it ships a manifest, with no astryx.config
  *   entry naming it — see foundation/integrations/autolink.mjs
+ * @property {boolean} [__computer] loaded because it is installed beside the
+ *   running CLI and the folder is outside a project (spec AST-081 FR12) — see
+ *   foundation/integrations/computer-integrations.mjs
  * @property {boolean} [__local] loaded from the package containing the current
  *   working directory, so an author sees the exact bytes they are editing
  * @property {string} [__dependencyField] for an autolinked integration, the

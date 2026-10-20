@@ -30,12 +30,15 @@ import * as path from 'node:path';
 import {MIN_NODE_VERSION, isNodeVersionSupported} from '../../foundation/env/node-version.mjs';
 import {AGENT_DOC_PATHS} from '../../foundation/agent-docs/agent-doc-state.mjs';
 import {CLI_ROOT, findProjectCoreDir, findInstalledPackage} from '../../foundation/fs/paths.mjs';
-import {explainPackageManager, formatCliCommand, getCliInvocation, guessCliInvocation} from '../../foundation/env/package-manager.mjs';
+import {detectPackageManager, explainPackageManager, formatCliCommand, getCliInvocation, guessCliInvocation} from '../../foundation/env/package-manager.mjs';
+import {readDeclaredDependencies} from '../../foundation/integrations/autolink.mjs';
 import {chooseDeclaredCliCommand, declaredCliCommandsOf} from '../../foundation/env/cli-command.mjs';
 import {
   findConfigPath,
   Project,
   providerLedgerOf,
+  computerIntegrationCandidates,
+  availableComputerIntegrations,
 } from '../../foundation/config/project.mjs';
 import {DocsCatalog} from '../../foundation/discovery/docs-discovery.mjs';
 import {buildDocsIndexData} from '../../foundation/discovery/docs-section-key.mjs';
@@ -1353,8 +1356,14 @@ export function checkCliCommand(ctx) {
  *   release (outside a project)
  * @property {import('../../foundation/release/notices.mjs').ProjectLag | null} [projectLag]
  *   the project's release, when it is behind the newest (inside a project)
- * @property {import('../../foundation/env/search-path.mjs').SearchPathCommand[]} [searchPathCommands]
+  * @property {import('../../foundation/env/search-path.mjs').SearchPathCommand[]} [searchPathCommands]
  *   the `astryx` commands on the search path, in order
+ * @property {import('../../foundation/integrations/computer-integrations.mjs').ComputerIntegrationCandidate[]} [computerIntegrations]
+ *   the integrations installed beside the running CLI
+ * @property {string[]} [loadedComputerIntegrations] the names of those that
+ *   loaded outside a project
+ * @property {string[]} [folderIntegrations] the names of the integrations the
+ *   folder loads itself, whose copies win over the computer's
  */
 
 /**
@@ -1369,9 +1378,11 @@ export function checkAnsweringRelease(ctx) {
     id: 'answering-release',
     label: 'Release that answered',
     status: core ? 'pass' : 'info',
-    message: core
-      ? `CLI ${cli} with Core ${core} answered, outside a project.`
-      : `CLI ${cli} answered, outside a project. It installs Core ${cli} into the per-user cache the first time a command needs it.`,
+    message: `${
+      core
+        ? `CLI ${cli} with Core ${core} answered, outside a project.`
+        : `CLI ${cli} answered, outside a project. It installs Core ${cli} into the per-user cache the first time a command needs it.`
+    } How each folder is answered: \`${formatCliCommand('astryx docs cli/global', ctx.cwd)}\`.`,
   };
 }
 
@@ -1523,6 +1534,97 @@ export function checkComputerAgentText(ctx) {
 }
 
 /**
+ * The integrations installed for the computer (spec AST-081 FR12). Outside a
+ * project: each one that loads, and a warning for each that is skipped
+ * because its peer ranges exclude the answering release, or fails to load.
+ * @param {ComputerContext} ctx
+ * @returns {DoctorCheck}
+ */
+export function checkComputerIntegrations(ctx) {
+  const found = ctx.computerIntegrations ?? [];
+  const loaded = new Set(ctx.loadedComputerIntegrations ?? []);
+  const base = {id: 'computer-integrations', label: 'Integrations installed for this computer'};
+  if (found.length === 0) {
+    return {
+      ...base,
+      status: 'info',
+      message: 'No integration is installed beside the CLI installed for this computer.',
+    };
+  }
+  const label = (/** @type {{name: string, version?: string}} */ c) => (c.version ? `${c.name}@${c.version}` : c.name);
+  const own = new Set(ctx.folderIntegrations ?? []);
+  const shadowed = found.filter(c => own.has(c.name));
+  const rest = found.filter(c => !own.has(c.name));
+  const used = rest.filter(c => !c.incompatible && loaded.has(c.name));
+  const skipped = rest.filter(c => c.incompatible);
+  const failed = rest.filter(c => !c.incompatible && !loaded.has(c.name));
+  const notes = [
+    used.length > 0 ? `Used outside a project: ${used.map(label).join(', ')}.` : '',
+    ...shadowed.map(c => `${label(c)} is not used here: this folder loads its own copy of ${c.name}.`),
+    ...skipped.map(c => `Skipped ${label(c)}: ${c.incompatible}.`),
+    ...failed.map(c => `${label(c)} could not be loaded.`),
+  ].filter(Boolean);
+  const fixes = [
+    ...skipped.map(c => `install a release of ${c.name} that supports this CLI`),
+    ...failed.map(c => `run \`${formatCliCommand(`astryx doctor integration validate ${c.name}`, ctx.cwd)}\``),
+  ];
+  return {
+    ...base,
+    status: skipped.length + failed.length > 0 ? 'warn' : 'pass',
+    message: notes.join(' '),
+    ...(fixes.length > 0 ? {fix: `To fix: ${fixes.join('; ')}.`} : {}),
+  };
+}
+
+/**
+ * Inside a project, the integrations installed for the computer that the
+ * project does not install: available, never used (spec AST-081 FR12).
+ * Always info.
+ * @param {{cwd: string, installed: Set<string>, candidates?: import('../../foundation/integrations/computer-integrations.mjs').ComputerIntegrationCandidate[]}} input
+ * @returns {DoctorCheck}
+ */
+export function checkComputerIntegrationsAvailable({cwd, installed, candidates}) {
+  const available = (candidates ?? computerIntegrationCandidates(cwd)).filter(c => !installed.has(c.name));
+  const base = {id: 'computer-integrations', label: 'Integrations installed for this computer', status: /** @type {const} */ ('info')};
+  if (available.length === 0) {
+    return {...base, message: 'No integration installed for this computer is missing from this project.'};
+  }
+  const add = installCommandFor(cwd);
+  return {
+    ...base,
+    message: `Installed for this computer but not in this project, so not used here: ${available.map(c => c.name).join(', ')}.`,
+    fix: `To use one in this project, run ${available.map(c => `\`${add(c.name)}\``).join(' or ')}.`,
+  };
+}
+
+/**
+ * The package names the folder's package.json declares, nearest first.
+ * @param {string} cwd
+ * @returns {string[]}
+ */
+function declaredPackageNames(cwd) {
+  for (let dir = path.resolve(cwd); ; ) {
+    if (fs.existsSync(path.join(dir, 'package.json'))) {
+      return readDeclaredDependencies(dir).map(d => d.name);
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return [];
+    dir = parent;
+  }
+}
+
+/**
+ * The command that adds a package with the folder's package manager.
+ * @param {string} cwd
+ * @returns {(name: string) => string}
+ */
+function installCommandFor(cwd) {
+  const pm = detectPackageManager(cwd);
+  const verb = pm === 'pnpm' ? 'pnpm add' : pm === 'yarn' ? 'yarn add' : pm === 'bun' ? 'bun add' : 'npm install';
+  return name => `${verb} ${name}`;
+}
+
+/**
  * The checks doctor runs outside a project, in order.
  * @type {Array<(ctx: ComputerContext) => DoctorCheck>}
  */
@@ -1536,16 +1638,17 @@ export const COMPUTER_CHECKS = [
     }),
     checkAnsweringRelease,
   checkNewestRelease,
-  checkCliOnPath,
+    checkCliOnPath,
+  checkComputerIntegrations,
   checkComputerAgentText,
 ];
 
 /**
  * Doctor outside a project: the computer, never the folder.
  * @param {string} cwd
- * @returns {DoctorReport}
+ * @returns {Promise<DoctorReport>}
  */
-function runComputerChecks(cwd) {
+async function runComputerChecks(cwd) {
   /** @type {ComputerContext} */
   const ctx = {
     nodeVersion: process.versions.node,
@@ -1555,6 +1658,18 @@ function runComputerChecks(cwd) {
     cwd,
   };
   ctx.globalBehind = isGlobalCopy(CLI_ROOT) ? globalBehind({self: {version: ctx.answeredBy.cli, root: CLI_ROOT}}) : null;
+  ctx.computerIntegrations = computerIntegrationCandidates(cwd);
+  if (ctx.computerIntegrations.length > 0) {
+    try {
+      const project = await Project.load(cwd);
+      /** @type {Array<{name: string, __computer?: boolean, __loadError?: string}>} */
+      const loaded = project.loadedIntegrations;
+      ctx.loadedComputerIntegrations = loaded.filter(i => i.__computer && !i.__loadError).map(i => i.name);
+      ctx.folderIntegrations = loaded.filter(i => !i.__computer).map(i => i.name);
+    } catch {
+      ctx.loadedComputerIntegrations = [];
+    }
+  }
   const checks = COMPUTER_CHECKS.map(fn => fn(ctx));
   const summary = {pass: 0, warn: 0, fail: 0, info: 0};
   for (const c of checks) summary[c.status] += 1;
@@ -1760,7 +1875,20 @@ export async function runChecks(options = {}) {
       projectLag: projectLag({cwd, current: answered.cli}),
     }),
   );
-  checks.push(checkCliOnPath({nodeVersion: ctx.nodeVersion, answeredBy: answered, latest: null}));
+    checks.push(checkCliOnPath({nodeVersion: ctx.nodeVersion, answeredBy: answered, latest: null}));
+  {
+    const installed = new Set([
+      ...(project?.loadedIntegrations ?? []).map((/** @type {{name: string}} */ i) => i.name),
+      ...declaredPackageNames(cwd),
+    ]);
+    checks.push(
+      checkComputerIntegrationsAvailable({
+        cwd,
+        installed,
+        candidates: await availableComputerIntegrations(cwd, installed),
+      }),
+    );
+  }
   checks.push(await checkAuthoringDocs(ctx));
   checks.push(await checkCliDocs(ctx));
   checks.push(await checkDocsTree(ctx));

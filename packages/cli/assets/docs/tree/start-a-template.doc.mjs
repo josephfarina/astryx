@@ -139,5 +139,15 @@ Declare template root ./templates in astryx.integration.mjs.
         },
       ],
     },
+    {
+      id: 'global-mode',
+      title: 'In global mode',
+      content: [
+        {
+          type: 'prose',
+          text: 'In global mode: when users install your package for their computer, beside the global CLI, your templates show up in folders outside any project; inside a project, only if the project installs your package. See {@link namespace:global} and {@link generic:global-integrations}.',
+        },
+      ],
+    },
   ],
 };

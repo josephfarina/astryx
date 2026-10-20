@@ -43,4 +43,10 @@ export const doc = {
     {code: 1, when: 'one or more error-severity issues'},
   ],
   related: ['doctor integration templates', 'template'],
+  notes: [
+    {
+      type: 'prose',
+      text: "In global mode: outside an integration package, with no package named, it writes nothing and reports one `no_package` issue; a package name is looked up as in a project. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:global-integrations}.",
+    },
+  ],
 };

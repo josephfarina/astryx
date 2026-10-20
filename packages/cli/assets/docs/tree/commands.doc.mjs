@@ -22,4 +22,10 @@ export const docs = {
   adopts: [
     {source: {group: 'cli/commands', kinds: ['command']}, into: 'commands'},
   ],
+  blocks: [
+    {
+      type: 'prose',
+      text: "In global mode: every command declares what it does outside a project. Most answer as in a new project; some write nothing and name the project they need; `doctor`, `init`, `theme add`, and `upgrade` do something else, which each command's notes state. Inside a project, the release equal to the project's Core runs every command, whichever copy of the CLI you start. See {@link namespace:global}.",
+    },
+  ],
 };

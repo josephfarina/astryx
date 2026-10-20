@@ -43,6 +43,16 @@ import {
   resolvePackageDir,
 } from '../integrations/integrations.mjs';
 import {loadAutolinkCandidates} from '../integrations/autolink.mjs';
+import {
+  computerInstallRoots,
+  loadComputerIntegrations,
+  scanComputerIntegrations,
+} from '../integrations/computer-integrations.mjs';
+import {relativeWithin, samePath} from '../fs/path-compare.mjs';
+import {isOutsideProject} from '../env/project-scope.mjs';
+import {cliVersion} from '../release/run-context.mjs';
+import {isGlobalCopy} from '../release/choose.mjs';
+import {astryxCommandsOnSearchPath} from '../env/search-path.mjs';
 import {resolveProviders} from '../integrations/provider-resolution.mjs';
 import {
   setProject as setDebugProject,
@@ -55,7 +65,7 @@ import {
   discoverValidIntegrationComponents,
 } from '../discovery/component-discovery.mjs';
 import {resolveComponentReplacements} from '../discovery/component-replacement.mjs';
-import {findCoreDir} from '../fs/paths.mjs';
+import {CLI_ROOT, findCoreDir} from '../fs/paths.mjs';
 import {
   applyTemplateReplacements,
   effectiveTemplateDiscovery,
@@ -98,6 +108,80 @@ function errorMessage(err) {
       ? /** @type {{message: unknown}} */ (err).message
       : undefined;
   return message == null ? String(err) : String(message);
+}
+
+/**
+ * The computer-level integrations (spec AST-081 FR12), read from package.json
+ * files only. Outside a project, those installed beside the running CLI;
+ * inside one, where the project's own CLI may be the copy that answers, those
+ * installed beside the CLI installed for the computer (see globalCliRoot).
+ * @param {string} [cwd]
+ * @returns {import('../integrations/computer-integrations.mjs').ComputerIntegrationCandidate[]}
+ */
+export function computerIntegrationCandidates(cwd = process.cwd()) {
+  try {
+    const cliRoot = isOutsideProject(cwd) ? CLI_ROOT : globalCliRoot(cwd);
+    return cliRoot
+      ? scanComputerIntegrations({cliRoot, release: cliVersion()})
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The CLI package whose install root holds the computer-level integrations
+ * for a folder inside a project: this copy when it was installed outside the
+ * project (installed for the computer, or in a tool's package set), else the
+ * first `astryx` on the search path that is installed for the computer. A
+ * project's own CLI and a release from the per-user cache are neither.
+ * @param {string} cwd
+ * @returns {string | null}
+ */
+function globalCliRoot(cwd) {
+  let folder = path.resolve(cwd);
+  try {
+    folder = fs.realpathSync(folder);
+  } catch {
+    // A folder that cannot be resolved is compared as written.
+  }
+  const own = computerInstallRoots(CLI_ROOT);
+  if (
+    own.length > 0 &&
+    !own.some(
+      root => samePath(root, folder) || relativeWithin(root, folder) != null,
+    )
+  ) {
+    return CLI_ROOT;
+  }
+  for (const command of astryxCommandsOnSearchPath()) {
+    if (command.cliRoot && isGlobalCopy(command.cliRoot)) {
+      return command.cliRoot;
+    }
+  }
+  return null;
+}
+
+/**
+ * The computer-level integrations a project could add (spec AST-081 FR12):
+ * those it does not install, whose peer ranges admit the release that
+ * answers, and whose manifest loads.
+ * @param {string} cwd
+ * @param {Set<string>} installed package names the project loads or declares
+ * @returns {Promise<import('../integrations/computer-integrations.mjs').ComputerIntegrationCandidate[]>}
+ */
+export async function availableComputerIntegrations(cwd, installed) {
+  const candidates = computerIntegrationCandidates(cwd).filter(
+    c => !c.incompatible && !installed.has(c.name),
+  );
+  if (candidates.length === 0) return [];
+  const loaded = await loadComputerIntegrations(candidates);
+  const usable = new Set(
+    loaded.flatMap(entry =>
+      entry.integration && !entry.integration.__loadError ? [entry.spec] : [],
+    ),
+  );
+  return candidates.filter(c => usable.has(c.name));
 }
 
 /**
@@ -440,7 +524,26 @@ export class Project {
     // existing consumer command doubles as the author's preview. A local copy
     // replaces the same installed package in place, preserving configured
     // precedence while making the source being edited authoritative.
-    const localIntegration = await loadLocalIntegrationSafely(projectDir, fresh);
+    const localIntegration = await loadLocalIntegrationSafely(
+      projectDir,
+      fresh,
+    );
+
+    // Outside a project, the integrations installed beside the running CLI
+    // load too (spec AST-081 FR12); a package the folder already loads keeps
+    // its own copy. Inside a project they never load.
+    const computer = isOutsideProject(cwd)
+      ? await loadComputerIntegrations(computerIntegrationCandidates(cwd), {
+          fresh,
+          exclude: [
+            ...loadedIntegrations.map(integration => integration.name),
+            ...autolinked.flatMap(candidate =>
+              candidate.integration ? [candidate.integration.name] : [],
+            ),
+            ...(localIntegration ? [localIntegration.name] : []),
+          ],
+        })
+      : [];
 
     // Autolinked and local packages can claim a provider ID that a configured
     // package already holds, so identity is resolved once over the final set.
@@ -451,6 +554,7 @@ export class Project {
         spec: integration.__spec,
       })),
       ...autolinked,
+      ...computer,
       ...(localIntegration
         ? [
             {
@@ -865,7 +969,10 @@ export class Project {
           // nothing and a reader gets the topic it was meant to replace.
           if (errors.length > 0) {
             for (const e of errors) {
-              catalog.addIssue({package: integration.name ?? pkg, message: e.message});
+              catalog.addIssue({
+                package: integration.name ?? pkg,
+                message: e.message,
+              });
             }
             continue;
           }

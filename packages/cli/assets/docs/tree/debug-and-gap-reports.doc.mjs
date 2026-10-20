@@ -178,5 +178,15 @@ message:     Rerun with --confirm-public to file this report.`,
         },
       ],
     },
+    {
+      id: 'global-mode',
+      title: 'In global mode',
+      content: [
+        {
+          type: 'prose',
+          text: 'In global mode: when users install your package for their computer, beside the global CLI, its `debug` function receives runs in folders outside any project too; inside a project, only if the project installs it. See {@link namespace:global} and {@link generic:global-integrations}.',
+        },
+      ],
+    },
   ],
 };

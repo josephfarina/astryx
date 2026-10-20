@@ -122,4 +122,10 @@ export const doc = {
     },
   ],
   related: ['integration verify', 'doctor integration validate', 'theme add'],
+  notes: [
+    {
+      type: 'prose',
+      text: "In global mode: outside a project, integration add writes nothing and fails before doing any work, naming the app project it needs. To use an integration outside projects, install it for your computer beside the CLI. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:computer-integrations}.",
+    },
+  ],
 };

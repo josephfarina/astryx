@@ -20,4 +20,10 @@ export const doc = {
     {code: 1, when: 'the theme is not added or state is invalid'},
   ],
   related: ['theme add', 'theme remove', 'theme list'],
+  notes: [
+    {
+      type: 'prose',
+      text: "In global mode: outside a project, theme use writes nothing and fails before doing any work, naming the app project it needs. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:who-answers}.",
+    },
+  ],
 };

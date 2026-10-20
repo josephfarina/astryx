@@ -101,6 +101,10 @@ export const doc = {
   notes: [
     {
       type: 'prose',
+      text: "In global mode: a manifest loads the same way when users install your package for their computer, beside the global CLI, and then applies in folders outside any project; inside a project, only if the project installs it. Peer ranges for `@astryxdesign/core` and `@astryxdesign/cli` are checked against the global CLI's release. See {@link namespace:global} and {@link generic:global-integrations}.",
+    },
+    {
+      type: 'prose',
       text:
         'The provider name defaults to the package name in package.json. ' +
         'During a rename, set `providerId` to the old package name so the IDs ' +

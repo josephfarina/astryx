@@ -59,7 +59,7 @@ npx @astryxdesign/cli init --features agents --agent all       # every agent fil
         },
         {
           type: 'prose',
-          text: "For agents that work outside any one project, the CLI installed for your computer keeps the same guide in the skill folders agent tools read, such as `~/.agents/skills/astryx/` and `~/.claude/skills/astryx/`; `astryx init --user` writes it now or limits it to some agents. Inside a project, agents follow that project's own agent docs. See `astryx docs cli/install-once`.",
+          text: "For agents that work outside any one project, the CLI installed for your computer keeps the same guide in the skill folders agent tools read, such as `~/.agents/skills/astryx/` and `~/.claude/skills/astryx/`; `astryx init --user` writes it now or limits it to some agents. Inside a project, agents follow that project's own agent docs. See {@link generic:computer-agent-guide}.",
         },
       ],
     },
@@ -243,6 +243,16 @@ astryx docs principles --dense`,
         {
           type: 'prose',
           text: 'Once connected, your AI tool can search for components by natural language (e.g. "dropdown menu", "success message") and retrieve full documentation without any manual CLI invocation. The server uses the same keyword index from component docs, so search quality improves automatically as component documentation is updated.',
+        },
+      ],
+    },
+    {
+      id: 'global-mode',
+      title: 'In global mode',
+      content: [
+        {
+          type: 'prose',
+          text: "In global mode: the CLI installed for your computer keeps an agent guide where agent tools look in your home folder, so agents outside any project know Astryx; inside a project, its own agent docs win. See {@link namespace:global} and {@link generic:computer-agent-guide}.",
         },
       ],
     },

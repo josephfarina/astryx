@@ -79,7 +79,7 @@ export default {
           items: [
             'The `cliCommand` of the packages the app loads, when they name one command.',
             'The command a host tool names when it runs the CLI for the app. Nothing in a plain project names one.',
-            "A command that reaches the release that answered: what the app's package manager runs when the app's own CLI answered, such as `npx astryx` or `pnpm exec astryx`; `astryx` outside a project when the CLI installed for the computer answered; otherwise the CLI package pinned to that release, such as `npx @astryxdesign/cli@0.7.2` (see `astryx docs cli/install-once`).",
+            "A command that reaches the release that answered: what the app's package manager runs when the app's own CLI answered, such as `npx astryx` or `pnpm exec astryx`; `astryx` outside a project when the CLI installed for the computer answered; otherwise the CLI package pinned to that release, such as `npx @astryxdesign/cli@0.7.2` (see {@link generic:who-answers}).",
           ],
         },
         {
@@ -125,6 +125,16 @@ message: Loaded integrations declare different CLI commands: @acme/astryx-widget
           type: 'code',
           lang: 'bash',
           code: 'astryx doctor integration validate\n# In an app that installs the package\nastryx doctor',
+        },
+      ],
+    },
+    {
+      id: 'global-mode',
+      title: 'In global mode',
+      content: [
+        {
+          type: 'prose',
+          text: "In global mode: outside a project, the `cliCommand` of integrations installed for the computer applies; when none is declared, commands start with the plain command of the CLI installed for the computer. Inside a project, only the project's integrations count, so a `cliCommand` from a package installed for the computer never changes the project's printed commands. See {@link namespace:global} and {@link generic:global-integrations}.",
         },
       ],
     },

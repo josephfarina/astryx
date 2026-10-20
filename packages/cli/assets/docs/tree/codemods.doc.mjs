@@ -143,5 +143,15 @@ Applying integration codemods...
         },
       ],
     },
+    {
+      id: 'global-mode',
+      title: 'In global mode',
+      content: [
+        {
+          type: 'prose',
+          text: "In global mode: inside an app, `upgrade` runs with the release equal to the app's Core, whichever copy of the CLI the user starts, and only the codemods of integrations the app installs run. Outside a project, `upgrade` lists codemods and migrates nothing. See {@link namespace:global} and {@link command:upgrade}.",
+        },
+      ],
+    },
   ],
 };

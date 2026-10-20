@@ -66,4 +66,10 @@ export const doc = {
     },
   ],
   related: ['component', 'discover', 'upgrade'],
+  notes: [
+    {
+      type: 'prose',
+      text: "In global mode: outside a project, swizzle writes nothing and fails before doing any work, naming the app project it needs, even though the CLI carries a Core there. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:who-answers}.",
+    },
+  ],
 };

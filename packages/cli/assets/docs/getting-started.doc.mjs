@@ -234,5 +234,15 @@ astryx docs tokens        # spacing, color, radius reference`,
         },
       ],
     },
+    {
+      id: 'global-mode',
+      title: 'In global mode',
+      content: [
+        {
+          type: 'prose',
+          text: 'In global mode: install the CLI once for your computer (`npm i -g @astryxdesign/cli`) and run `astryx` in any folder; inside this project, the release equal to its Core still answers. See {@link namespace:global}.',
+        },
+      ],
+    },
   ],
 };

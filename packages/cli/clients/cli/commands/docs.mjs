@@ -506,12 +506,17 @@ function emitNode(node, detail, run) {
     emit(
       section(node.title, wrapText(prefixCliCommands(node.summary, run))),
       record({package: node.package}),
-      // A namespace may author intro `blocks`; they render above its children.
+      // A namespace may author intro `blocks`; they render above its children,
+      // prose wrapped like the summary.
       ...(node.content?.length
         ? [
             text(
               node.content
-                .map(b => formatBlock(b, detail))
+                .map(b =>
+                  b.type === 'prose'
+                    ? wrapText(formatBlock(b, detail) ?? '')
+                    : formatBlock(b, detail),
+                )
                 .filter(Boolean)
                 .join('\n\n'),
             ),

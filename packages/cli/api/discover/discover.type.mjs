@@ -66,7 +66,11 @@
  * @property {string[]} [agentDocs]
  * @property {string} [description]
  * @property {string[]} [aliases] The integration's other package names.
- * @property {string} source The discover source that lists it.
+ * @property {string} source The discover source that lists it, or
+ *   `installed for this computer` for an integration installed beside the
+ *   CLI that the project does not install (spec AST-081 FR12).
+ * @property {string} [install] For an integration installed for the
+ *   computer, the command that adds it to this project.
  */
 
 /**

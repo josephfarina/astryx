@@ -101,7 +101,7 @@ describe('route resolution', () => {
         'authoring',
         'browser-support',
         'cli-component-lookups',
-        'cli-install-once',
+        'cli-global',
         'cli-integrations',
         'cli-writing-docs',
         'internationalization',

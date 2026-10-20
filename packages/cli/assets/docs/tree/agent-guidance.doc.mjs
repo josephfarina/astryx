@@ -138,5 +138,15 @@ astryx upgrade --from 0.7.0 --apply`,
         },
       ],
     },
+    {
+      id: 'global-mode',
+      title: 'In global mode',
+      content: [
+        {
+          type: 'prose',
+          text: "In global mode: the agent guide the CLI keeps for the computer carries no integration's guidance, because it serves every folder; your guidance reaches agents through the agent docs `init` writes in an app that installs your package. See {@link namespace:global} and {@link generic:computer-agent-guide}.",
+        },
+      ],
+    },
   ],
 };

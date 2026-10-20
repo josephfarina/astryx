@@ -89,7 +89,7 @@ export const doc = {
     {
       type: 'discover.list',
       description:
-        'The installed integrations (name, category, components, version, and a list per other kind they add). With a discover source, meta.available lists what the project could add and meta.sources reports each source. When the list is empty it carries meta.configured.',
+        'The installed integrations (name, category, components, version, and a list per other kind they add). With a discover source, meta.available lists what the project could add and meta.sources reports each source. Inside a project, an integration installed for the computer that the project does not install is also listed in meta.available, with source `installed for this computer` and the install command for the project in `install`. When the list is empty it carries meta.configured.',
     },
     {
       type: 'discover.detail',

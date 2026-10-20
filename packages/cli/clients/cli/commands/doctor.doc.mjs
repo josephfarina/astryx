@@ -21,7 +21,7 @@ export const doc = {
     "the docs the CLI reads, the newest release the computer knows of, with the install and upgrade commands when the project's release is older, and every `astryx` command on the search path, warning when the first one is not the Astryx CLI or predates the hand-off. It writes nothing, but loading astryx.config runs that file's code. " +
     'The `integration` subcommands provide authoring checks for one integration package. ' +
     'Outside a project it checks the computer instead: the Node version, the release that answered, ' +
-    'the newest release this computer knows of, with the command that upgrades the CLI installed for the computer when it is older, the `astryx` commands on the search path, and whether the computer-level agent text (`astryx init --user`) is present, matches this release, was edited, or is turned off (info only). ' +
+    'the newest release this computer knows of, with the command that upgrades the CLI installed for the computer when it is older, the `astryx` commands on the search path, the integrations installed for the computer (warning about one it skips), and whether the computer-level agent text (`astryx init --user`) is present, matches this release, was edited, or is turned off (info only). ' +
     'It never fails a check because the folder has no project.',
   fn: 'doctor',
   subcommands: ['integration'],
@@ -51,4 +51,10 @@ export const doc = {
     {code: 1, when: 'one or more checks failed'},
   ],
   related: ['init', 'upgrade'],
+  notes: [
+    {
+      type: 'prose',
+      text: "In global mode: outside a project, doctor checks your computer instead of a folder: the Node version, the release that answered, the newest release it knows of, every astryx command on your search path, the integrations installed for your computer, and the agent guide for your computer. It never fails a check because the folder has no project. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:who-answers}.",
+    },
+  ],
 };

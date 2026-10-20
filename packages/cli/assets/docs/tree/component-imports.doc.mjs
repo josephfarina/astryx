@@ -73,5 +73,15 @@ export const docs = {
         },
       ],
     },
+    {
+      id: 'global-mode',
+      title: 'In global mode',
+      content: [
+        {
+          type: 'prose',
+          text: "In global mode: outside a project, imports the CLI prints name packages installed for the computer, which a new app must install before it can build them; inside a project, only packages the project installs are printed. See {@link namespace:global} and {@link generic:global-integrations}.",
+        },
+      ],
+    },
   ],
 };

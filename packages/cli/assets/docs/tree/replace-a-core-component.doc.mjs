@@ -117,5 +117,15 @@ export default {
         },
       ],
     },
+    {
+      id: 'global-mode',
+      title: 'In global mode',
+      content: [
+        {
+          type: 'prose',
+          text: 'In global mode: a replacement from a package installed for the computer applies in folders outside any project; inside a project, only replacements from packages the project installs apply. See {@link namespace:global} and {@link generic:global-integrations}.',
+        },
+      ],
+    },
   ],
 };
