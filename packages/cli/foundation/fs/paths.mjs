@@ -13,6 +13,7 @@ import {fileURLToPath} from 'node:url';
 import {listDir, pathExists} from './listing-cache.mjs';
 import {ERROR_CODES} from '../response/error-codes.mjs';
 import {carriedCore, runChoice} from '../release/run-context.mjs';
+import {findDeclaringPackage} from '../release/project.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -105,13 +106,31 @@ function carriedCoreFor(startDir, fetch = false) {
  * Find packages/core directory by walking up from startDir.
  * Also checks node_modules/@astryxdesign/core for installed usage.
  *
- * The project's Core only, with the reach every released version used: the
- * folder and four above it.
+ * The project's Core only: in the folder or four above it, the reach every
+ * released version used, else from the folder of the package.json that makes
+ * the folder part of a project, however deep the folder is.
  *
  * @param {string} [startDir]
  * @returns {string | null}
  */
 export function findProjectCoreDir(startDir = process.cwd()) {
+  const near = findNearbyCoreDir(startDir);
+  if (near) return near;
+  // A folder deeper than that reach still belongs to the project the walk to
+  // its package.json finds, so its Core is looked up from there too (spec
+  // AST-081, a folder's project): never the carried Core in its place.
+  const declaring = findDeclaringPackage(startDir);
+  return declaring && declaring.dir !== path.resolve(startDir)
+    ? findNearbyCoreDir(declaring.dir)
+    : null;
+}
+
+/**
+ * The Core installed in `startDir` or one of the four folders above it.
+ * @param {string} startDir
+ * @returns {string | null}
+ */
+function findNearbyCoreDir(startDir) {
   let dir = startDir;
 
   for (let i = 0; i < 5; i++) {
@@ -243,7 +262,7 @@ export function discoverExternalPackages(startDir = process.cwd()) {
   if (!nodeModulesDir) return externals;
 
   /** @param {string} searchDir */
-  const scanDir = (searchDir) => {
+  const scanDir = searchDir => {
     if (!fs.existsSync(searchDir)) return;
     const entries = fs.readdirSync(searchDir, {withFileTypes: true});
 
@@ -326,7 +345,8 @@ export function existsCaseExact(targetPath, rootDir) {
 
   const rel = path.relative(rootDir, targetPath);
   if (rel === '') return true;
-  if (path.isAbsolute(rel) || rel === '..' || rel.startsWith(`..${path.sep}`)) return false;
+  if (path.isAbsolute(rel) || rel === '..' || rel.startsWith(`..${path.sep}`))
+    return false;
 
   let dir = rootDir;
   for (const segment of rel.split(path.sep)) {

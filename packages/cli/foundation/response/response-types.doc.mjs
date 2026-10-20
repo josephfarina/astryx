@@ -35,7 +35,7 @@ export const doc = {
     {
       value: 'init.user',
       description:
-        'The computer-level agent text receipt — returned when --user is set: `data.files`, one `{path, action}` per skill file (action `written` | `unchanged` | `removed` | `absent` | `kept`), `data.command` (the command the text names), and `data.warnings`.',
+        'The computer-level agent text receipt — returned when --user is set: `data.files`, one `{path, action, reason?}` per path acted on, the skill file first and then each link to its folder (action `written` | `linked` | `unchanged` | `removed` | `absent` | `kept`; `reason` only on `kept`: `edited` when a person changed the text, `not-astryx` when Astryx did not write it), `data.command` (the command the text names), and `data.warnings`.',
     },
     // component
     {
@@ -144,7 +144,7 @@ export const doc = {
     {
       value: 'search',
       description:
-        'The echoed query, `matchCount` (total matches, before `limit`), and results, a ranked SearchResultEntry[] bounded by `limit`: each {domain, name, package, score, reason, description, command} (package is the npm package that owns the result), plus import (components, hooks), title, parent (the command that opens the level above), and, for a hit on one section, section (docs), or displayName and kind (templates).',
+        'The echoed query, `matchCount` (total matches, before `limit`), and results, a ranked SearchResultEntry[] bounded by `limit`: each {domain, name, package, score, reason, description, command} (package is the npm package that owns the result), plus import (components, hooks), title, parent (the command that opens the level above), and, for a hit on one section, section (docs), or displayName and kind (templates). When a search with no `type` could not obtain @astryxdesign/core, `meta.partial` is {skipped, reason}: the domains it skipped (component, hook, template) and why.',
     },
 
     // build

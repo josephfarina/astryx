@@ -44,7 +44,7 @@ export const docs = {
         },
         {
           type: 'prose',
-          text: "Components come from `@astryxdesign/core`, and templates, docs, and agent guides come from the CLI. When the project's CLI and Core are different versions, `astryx doctor` warns and prints the command that brings them to one version.",
+          text: "Components come from `@astryxdesign/core`, and templates, docs, and agent guides come from the CLI. In a project, that Core is the one the project installs, so component commands work offline once the project's dependencies are installed; outside a project they use the global version's Core from the cache. When the project's CLI and Core are different versions, `astryx doctor` warns and prints the command that brings them to one version.",
         },
       ],
     },

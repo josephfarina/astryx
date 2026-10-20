@@ -86,12 +86,31 @@ function installedAs(dir, name) {
 /**
  * The Core the folder reads, found the way `findCoreDir` finds it: the
  * folder and up to four folders above it, a workspace's `packages/core` or
- * an installed `node_modules/@astryxdesign/core`. A `packages/core` that is
+ * an installed `node_modules/@astryxdesign/core`, else the same from the
+ * folder of the package.json that makes the folder part of a project. A `packages/core` that is
  * another package is skipped, because no release pairs with it.
  * @param {string} startDir
  * @returns {InstalledAstryxPackage | null}
  */
 export function findReadCore(startDir) {
+  const near = nearbyReadCore(startDir);
+  if (near) return near;
+  // A folder deeper than that reach still belongs to the project the walk to
+  // its package.json finds, so its Core is read from there (spec AST-081, a
+  // folder's project).
+  const declaring = findDeclaringPackage(startDir);
+  return declaring && declaring.dir !== path.resolve(startDir)
+    ? nearbyReadCore(declaring.dir)
+    : null;
+}
+
+/**
+ * The Core installed in the folder or one of the four folders above it, or a
+ * workspace's own Core package there.
+ * @param {string} startDir
+ * @returns {InstalledAstryxPackage | null}
+ */
+function nearbyReadCore(startDir) {
   let dir = path.resolve(startDir);
   for (let i = 0; i < 5; i++) {
     const workspace = installedAs(
@@ -399,16 +418,18 @@ export function findLockfile(memberDir) {
  * @returns {ReleaseFacts}
  */
 export function readReleaseFacts(startDir) {
-  const core = findReadCore(startDir);
   const declaring = findDeclaringPackage(startDir);
   // A folder deeper than the nearby look reaches still belongs to the project
   // the walk found, so its own CLI is looked up from there too, as a package
-  // runner resolves the project's command from any depth (spec AST-081 FR2).
+  // runner resolves the project's command from any depth (spec AST-081, a
+  // folder's project); findReadCore does the same for Core.
+  const fromRoot =
+    declaring && declaring.dir !== path.resolve(startDir)
+      ? declaring.dir
+      : null;
+  const core = findReadCore(startDir);
   const cli =
-    findProjectCli(startDir) ??
-    (declaring && declaring.dir !== path.resolve(startDir)
-      ? findProjectCli(declaring.dir)
-      : null);
+    findProjectCli(startDir) ?? (fromRoot ? findProjectCli(fromRoot) : null);
   let lockedCoreVersion = null;
   let lockedCliVersion = null;
   if (declaring && (!core || !cli)) {

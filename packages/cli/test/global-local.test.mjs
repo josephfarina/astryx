@@ -1890,6 +1890,40 @@ describe.skipIf(!POSIX)(
       });
       expect(JSON.parse(cached.stdout).meta?.partial).toBeUndefined();
     });
+
+    it("G57 a folder deeper than the nearby look in a project with only Core: that Core is read, never the starting copy's", () => {
+      const pc = computer();
+      const g = globalCli('npm', '9.0.0', {root: pc.home});
+      const dir = makeProject({core: '9.0.1'});
+      for (const rel of [
+        ['a', 'b', 'c', 'd', 'e'],
+        ['src', 'a', 'b', 'c', 'd', 'e'],
+        ['src', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k'],
+        ['src', 'app', '(shop)', 'orders', '[id]', 'edit'],
+      ]) {
+        const deep = path.join(dir, ...rel);
+        fs.mkdirSync(deep, {recursive: true});
+        const json = run(g.bin, ['docs', '--json'], {cwd: deep, pc});
+        expect(JSON.parse(json.stdout).meta.answeredBy, rel.join('/')).toEqual({
+          cli: '9.0.0',
+          core: '9.0.1',
+          copy: 'starting',
+        });
+        // The command reads the project's Core (here an empty stand-in with
+        // no components), not the one the copy carries, which has Button.
+        const component = run(g.bin, ['component', 'Button', '--json'], {
+          cwd: deep,
+          pc,
+        });
+        expect(
+          component.status,
+          `${rel.join('/')}: ${component.stdout}`,
+        ).not.toBe(0);
+        expect(JSON.parse(component.stdout).code).not.toBe(
+          'ERR_VERSIONS_UNAVAILABLE',
+        );
+      }
+    });
   },
 );
 
@@ -1898,6 +1932,6 @@ it('names every row of the table exactly once', () => {
   const rows = [
     ...text.matchAll(/^\s+it(?:\.skipIf\([^)]*\)\()?\(?\s*['"](G\d+) /gmu),
   ].map(m => m[1]);
-  expect(rows).toEqual(Array.from({length: 56}, (_, i) => `G${i + 1}`));
+  expect(rows).toEqual(Array.from({length: 57}, (_, i) => `G${i + 1}`));
   expect(os.EOL).toBeTypeOf('string');
 });

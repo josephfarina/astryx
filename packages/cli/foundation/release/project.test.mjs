@@ -23,15 +23,22 @@ import {
 afterEach(cleanupFixtures);
 
 describe('findReadCore', () => {
-  it('finds the installed Core in the folder or up to four above it', () => {
+  it('finds the installed Core in the folder or up to four above it, and from the declaring package.json at any depth (b30)', () => {
     const root = project(tempDir(), {'@astryxdesign/core': '0.6.8'});
     installCore(root, '0.6.8');
     const deep = path.join(root, 'a', 'b', 'c', 'd');
     fs.mkdirSync(deep, {recursive: true});
     expect(findReadCore(deep)?.version).toBe('0.6.8');
-    const tooDeep = path.join(deep, 'e');
-    fs.mkdirSync(tooDeep);
-    expect(findReadCore(tooDeep)).toBeNull();
+    const tooDeep = path.join(deep, 'e', 'f', 'g');
+    fs.mkdirSync(tooDeep, {recursive: true});
+    expect(findReadCore(tooDeep)?.version).toBe('0.6.8');
+    // With no package.json that declares Astryx, the reach stays four folders.
+    const plain = tempDir();
+    writeJson(path.join(plain, 'package.json'), {name: 'plain'});
+    installCore(plain, '0.6.8');
+    const plainDeep = path.join(plain, 'a', 'b', 'c', 'd', 'e');
+    fs.mkdirSync(plainDeep, {recursive: true});
+    expect(findReadCore(plainDeep)).toBeNull();
   });
 
   it("skips a workspace's packages/core that is another package", () => {
