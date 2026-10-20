@@ -85,7 +85,7 @@ function jsonActive() {
  * subcommand (e.g. `astryx component --help --json`).
  *
  * @param {import('commander').Command} cmd
- * @returns {{apiVersion: number, type: 'help', data: object, meta: {answeredBy: {cli: string, core: string | null, copy: 'project' | 'matched' | 'carried'}}}}
+ * @returns {{apiVersion: number, type: 'help', data: object, meta: {answeredBy: {cli: string, core: string | null, copy: 'project' | 'matched' | 'carried' | 'fallback'}}}}
  */
 export function buildHelpEnvelope(cmd) {
   // Reconstruct the fully-qualified command name (e.g. "astryx theme build").

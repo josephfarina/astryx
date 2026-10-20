@@ -255,17 +255,25 @@ function realOrSelf(p) {
 }
 
 /**
- * How to start npm: the npm that ships beside the running Node when it is
- * there, else `npm` on the PATH.
- * @returns {{command: string, prefix: string[], shell: boolean}}
+ * How to start npm, never through a shell, so nothing a project declares is
+ * read by one: npm's own entry file run with this Node, from beside the
+ * running Node, else from beside an `npm` on the PATH (on Windows, npm's
+ * `npm.cmd` shim sits next to its `node_modules`); else `npm` on the PATH,
+ * started directly.
+ * @param {{env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform}} [where]
+ * @returns {{command: string, prefix: string[], shell: false}}
  */
-export function npmCommand() {
-  const nodeDir = path.dirname(process.execPath);
-  const candidates =
-    process.platform === 'win32'
-      ? [path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js')]
+export function npmCommand(where = {}) {
+  const {env = process.env, platform = process.platform} = where;
+  const paths = platform === 'win32' ? path.win32 : path.posix;
+  const nodeDir = paths.dirname(process.execPath);
+  const entry = (/** @type {string} */ dir) =>
+    paths.join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  const candidates = [
+    ...(platform === 'win32'
+      ? [entry(nodeDir)]
       : [
-          path.join(
+          paths.join(
             nodeDir,
             '..',
             'lib',
@@ -274,16 +282,54 @@ export function npmCommand() {
             'bin',
             'npm-cli.js',
           ),
-          path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
-        ];
+          entry(nodeDir),
+        ]),
+    ...String(env.PATH ?? env.Path ?? '')
+      .split(platform === 'win32' ? ';' : ':')
+      .filter(Boolean)
+      .filter(dir =>
+        fs.existsSync(
+          paths.join(dir, platform === 'win32' ? 'npm.cmd' : 'npm'),
+        ),
+      )
+      .flatMap(dir =>
+        platform === 'win32'
+          ? [entry(dir)]
+          : [
+              paths.join(
+                dir,
+                '..',
+                'lib',
+                'node_modules',
+                'npm',
+                'bin',
+                'npm-cli.js',
+              ),
+            ],
+      ),
+  ];
   for (const file of candidates) {
     if (fs.existsSync(file)) {
       return {command: process.execPath, prefix: [file], shell: false};
     }
   }
-  return process.platform === 'win32'
-    ? {command: 'npm.cmd', prefix: [], shell: true}
-    : {command: 'npm', prefix: [], shell: false};
+  return {command: 'npm', prefix: [], shell: false};
+}
+
+/**
+ * Whether `spec` reads as an npm version range and nothing else: versions,
+ * `x`/`*` wildcards, prerelease tags, the range operators, `||`, and spaces.
+ * Anything a shell or npm would read as more, such as `&`, `;`, a lone `|`,
+ * quotes, or a URL, is refused.
+ * @param {string} spec
+ * @returns {boolean}
+ */
+export function isVersionRange(spec) {
+  if (typeof spec !== 'string' || spec.trim() === '' || spec.length > 256) {
+    return false;
+  }
+  if (/[^0-9A-Za-z.\-+^~<>=|*\s]/u.test(spec)) return false;
+  return !/(?:^|[^|])\|(?:[^|]|$)/u.test(spec);
 }
 
 /**
@@ -305,20 +351,21 @@ export function npmCommand() {
  * outlives the run that started it.
  *
  * @param {string[]} args
- * @param {{cwd?: string, timeoutMs?: number, pidFile?: string, npm?: {command: string, prefix: string[], shell: boolean}}} [options]
+ * @param {{cwd?: string, timeoutMs?: number, pidFile?: string, npm?: {command: string, prefix: string[], shell?: false}}} [options]
  *   `pidFile` receives npm's process id while it runs (the release lock's
  *   record); `npm` replaces how npm is started (tests).
  * @returns {NpmResult}
  */
 export function runNpm(args, options = {}) {
-  const {command, prefix, shell} = options.npm ?? npmCommand();
+  const {command, prefix} = options.npm ?? npmCommand();
   const timeoutMs = options.timeoutMs ?? 300_000;
-  const direct = shell || process.platform === 'win32';
+  const direct = process.platform === 'win32';
   const result = direct
     ? spawnSync(command, [...prefix, ...args], {
         cwd: options.cwd ?? os.tmpdir(),
         encoding: 'utf-8',
-        shell,
+        // Never a shell: a declared range must not reach one.
+        shell: false,
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: timeoutMs,
         // npm defers SIGTERM until its work finishes, so a time limit has to
@@ -372,6 +419,9 @@ const GUARD = fileURLToPath(new URL('./npm-guard.mjs', import.meta.url));
  * @returns {string | null}
  */
 export function resolvePublishedVersion(name, spec, options = {}) {
+  if (!isVersionRange(spec) || !/^@astryxdesign\/[a-z-]+$/u.test(name)) {
+    return null;
+  }
   const run = options.run ?? runNpm;
   const result = run(
     ['view', `${name}@${spec}`, 'version', '--json', ...BOUNDED_FETCH],

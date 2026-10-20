@@ -91,7 +91,7 @@ export const doc = {
   notes: [
     {
       type: 'prose',
-      text: "In global mode: outside a project, integrations installed for your computer are listed as installed and their items show up; inside a project only the project's integrations are, and the ones installed for your computer are listed as available with the project's install command. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:computer-integrations}.",
+      text: "In global mode: outside a project, integrations installed next to your global install are listed as installed and their items show up; inside a project, only the project's integrations are, and the global ones the project could add are listed under available, with the project's install command. In a project, the project's version of Astryx runs it, whichever astryx command you start. See {@link namespace:global} and {@link generic:computer-integrations}.",
     },
   ],
 };

@@ -15,7 +15,17 @@ npx @astryxdesign/cli template --list
 
 Once it's a project dependency (`npm install -D @astryxdesign/cli`), drop the scope and use the shorter `astryx` — e.g. `npx astryx component Button` or `pnpm exec astryx component Button`. Bare `astryx` resolves to an unrelated npm package until the CLI is installed, so prefer the scoped form above for first-run/one-off use.
 
-Or install it once for your computer (`npm i -g @astryxdesign/cli`) and run `astryx` in any folder. In a project, the release equal to the project's Core answers, whichever copy you start: a copy hands the run to the project's own CLI when that CLI matches its Core, and otherwise to the matching release, which it installs into your per-user cache. Outside a project, the release you installed answers; once a day it checks for a newer one in the background and, when there is one, prints `A new release of Astryx is available` with the upgrade command after a command finishes (never with `--json`, or when `CI` or `NO_UPDATE_NOTIFIER` is set). A text run prints one `astryx: answered by …` line on standard error unless you started it in the project's own CLI and that CLI answered it directly (a run another copy hands to the project's CLI prints one too); `--json` results carry `meta.answeredBy` instead. `astryx docs cli/global` explains why to use it globally and how each part works.
+## Install it once for your computer
+
+```bash
+npm i -g @astryxdesign/cli
+```
+
+Then `astryx` works in any folder, for you and for every coding agent on your computer. In a project, Astryx runs the project's own version, so a global install never changes what a project gets; outside a project, your global version answers. It tells you when a newer version is out, and never upgrades itself or a project.
+
+- Project install, global install, or both (recommended)? `astryx docs global/project-global-or-both` compares them.
+- How it works, and what it prints: `astryx docs global`.
+- Something looks wrong: `astryx docs global/problems`. Uninstall: `astryx docs global/uninstall`.
 
 ## Reading the CLI's own docs
 
@@ -590,12 +600,12 @@ There is no factory: write a plain object. For editor autocomplete and
 type-checking, annotate it with the `AstryxConfig` type exported from
 `@astryxdesign/cli/authoring`.
 
-| Field                         | Type                           | Purpose                                                                                         |
-| ----------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `integrations`                | `string[]`                     | Integration package names to load (see [Integrations](#integrations)).                          |
-| `issuesUrl`                   | `string`                       | Where "report an issue" links point for your project. Defaults to the core issue tracker.       |
-| `hooks.postCodemod`           | `PostCodemodHook[]`            | Commands to run after `astryx upgrade` applies codemods (e.g. reinstall, rebuild, reformat).    |
-| `experimental.xle.components` | `Record<string, XleComponent>` | Register app-local components so layout (XLE) expressions can reference them by name. Unstable. |
+| Field                         | Type                           | Purpose                                                                                                                                                                                                 |
+| ----------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `integrations`                | `string[]`                     | Integration package names to load (see [Integrations](#integrations)).                                                                                                                                  |
+| `issuesUrl`                   | `string`                       | Where "report an issue" links point for your project. Defaults to the core issue tracker.                                                                                                               |
+| `hooks.postCodemod`           | `PostCodemodHook[]`            | Commands to run after `astryx upgrade` applies codemods (e.g. reinstall, rebuild, reformat).                                                                                                            |
+| `experimental.xle.components` | `Record<string, XleComponent>` | Custom components for the removed layout expander, keyed by component name. The CLI still validates the field, so an entry without a string `from` makes `astryx.config` invalid, but nothing reads it. |
 
 The config is validated against a strict schema when the CLI loads it, so an
 unknown field is a hard error rather than a silent no-op. `astryx doctor`

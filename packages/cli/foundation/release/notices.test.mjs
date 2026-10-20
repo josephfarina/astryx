@@ -63,7 +63,7 @@ function cliOnPath(version, {handsOff = false, prefix = ['lib']} = {}) {
   }
   fs.mkdirSync(path.join(root, 'bin'));
   fs.symlinkSync(path.join(pkg, 'bin.mjs'), path.join(root, 'bin', 'astryx'));
-  return {bin: path.join(root, 'bin'), pkg};
+  return {bin: path.join(root, 'bin'), pkg, root};
 }
 
 /** A state folder whose last check found `version`, needing Node `node`. */
@@ -144,6 +144,69 @@ describe('the lines', () => {
     );
   });
 
+  it('upgrade a CLI that npm installed under its own prefix into that prefix', () => {
+    const linux = {
+      execPath: '/usr/bin/node',
+      home: '/home/a',
+      platform: /** @type {const} */ ('linux'),
+      env: {},
+    };
+    expect(
+      globalUpgradeCommand(
+        '/home/a/.local/lib/node_modules/@astryxdesign/cli',
+        linux,
+      ),
+    ).toBe('npm i -g --prefix ~/.local @astryxdesign/cli@latest');
+    expect(
+      globalUpgradeCommand(
+        '/home/a/.npm-global/lib/node_modules/@astryxdesign/cli',
+        linux,
+      ),
+    ).toBe('npm i -g --prefix ~/.npm-global @astryxdesign/cli@latest');
+    expect(
+      globalUpgradeCommand(
+        '/opt/tools/lib/node_modules/@astryxdesign/cli',
+        linux,
+      ),
+    ).toBe('npm i -g --prefix /opt/tools @astryxdesign/cli@latest');
+    // npm's default prefixes: Node's own, /usr/local, /usr.
+    for (const cli of [
+      '/usr/local/lib/node_modules/@astryxdesign/cli',
+      '/usr/lib/node_modules/@astryxdesign/cli',
+    ]) {
+      expect(globalUpgradeCommand(cli, linux)).toBe(
+        'npm i -g @astryxdesign/cli@latest',
+      );
+    }
+    expect(
+      globalUpgradeCommand(
+        '/home/a/.nvm/versions/node/v22.1.0/lib/node_modules/@astryxdesign/cli',
+        {
+          ...linux,
+          execPath: '/home/a/.nvm/versions/node/v22.1.0/bin/node',
+        },
+      ),
+    ).toBe('npm i -g @astryxdesign/cli@latest');
+    const win = {
+      execPath: 'C:\\Program Files\\nodejs\\node.exe',
+      home: 'C:\\Users\\a',
+      platform: /** @type {const} */ ('win32'),
+      env: {APPDATA: 'C:\\Users\\a\\AppData\\Roaming'},
+    };
+    expect(
+      globalUpgradeCommand(
+        'C:\\Users\\a\\AppData\\Roaming\\npm\\node_modules\\@astryxdesign\\cli',
+        win,
+      ),
+    ).toBe('npm i -g @astryxdesign/cli@latest');
+    expect(
+      globalUpgradeCommand(
+        'D:\\tools\\npm\\node_modules\\@astryxdesign\\cli',
+        win,
+      ),
+    ).toBe('npm i -g --prefix D:\\tools\\npm @astryxdesign/cli@latest');
+  });
+
   it('name the package manager that installed the global copy', () => {
     const at = (/** @type {string} */ p) =>
       globalUpgradeCommand(path.join(path.sep, ...p.split('/')));
@@ -198,8 +261,8 @@ describe('globalBehind and projectLag', () => {
       projectLag({cwd: coreOnly, current: '0.7.1', stateDir}),
     ).toMatchObject({
       root: coreOnly,
-      install: 'npm install @astryxdesign/core@0.7.3',
-      upgrade: 'npx @astryxdesign/cli@0.7.3 upgrade --from 0.7.1 --apply',
+      install: 'npm install @astryxdesign/core@0.7.3 @astryxdesign/cli@0.7.3',
+      upgrade: 'npx astryx upgrade --from 0.7.1 --apply',
     });
     const pnpm = project(tempDir(), {
       '@astryxdesign/core': '0.7.1',
@@ -257,6 +320,7 @@ describe.skipIf(process.platform === 'win32')('noticeLines', () => {
   const outside = () => {
     const global = cliOnPath('0.7.2', {handsOff: true});
     return {
+      global,
       cwd: tempDir('empty'),
       self: {version: '0.7.2', root: global.pkg},
       choice: {inProject: false, version: '0.7.2'},
@@ -267,17 +331,23 @@ describe.skipIf(process.platform === 'win32')('noticeLines', () => {
   };
 
   it('tells the global copy about a newer release, once a day', () => {
-    const input = {...outside(), stateDir: checked('0.7.3')};
+    const {global, ...input} = {...outside(), stateDir: checked('0.7.3')};
+    // The fixture's global folder is a prefix of its own, so the upgrade
+    // names it.
+    const prefix = fs.realpathSync(global.root);
     expect(noticeLines({...input, now: 10})).toEqual([
       'A new release of Astryx is available: 0.7.2 → 0.7.3',
-      'To upgrade, run: npm i -g @astryxdesign/cli@latest',
+      `To upgrade, run: npm i -g --prefix ${prefix} @astryxdesign/cli@latest`,
     ]);
     expect(noticeLines({...input, now: 20})).toEqual([]);
     expect(noticeLines({...input, now: 10 + DAY})).toHaveLength(2);
   });
 
   it('prints nothing with --json, in CI, or with NO_UPDATE_NOTIFIER, and keeps the notice for later', () => {
-    const input = {...outside(), stateDir: checked('0.7.3')};
+    const {global: _global, ...input} = {
+      ...outside(),
+      stateDir: checked('0.7.3'),
+    };
     expect(noticeLines({...input, json: true, now: 10})).toEqual([]);
     expect(noticeLines({...input, env: {CI: 'true'}, now: 10})).toEqual([]);
     expect(
@@ -292,6 +362,7 @@ describe.skipIf(process.platform === 'win32')('noticeLines', () => {
     writeJson(path.join(dir, 'package-lock.json'), {lockfileVersion: 3});
     installCore(dir, '0.7.1');
     const old = cliOnPath('0.7.1');
+    const oldUpgrade = `To upgrade, run: npm i -g --prefix ${fs.realpathSync(old.root)} @astryxdesign/cli@latest`;
     const input = {
       cwd: dir,
       self: {version: '0.7.1', root: tempDir('self')},
@@ -301,15 +372,15 @@ describe.skipIf(process.platform === 'win32')('noticeLines', () => {
     };
     expect(noticeLines({...input, stateDir, now: 10})).toEqual([
       'A new release of Astryx is available: 0.7.1 → 0.7.3',
-      'To upgrade, run: npm install @astryxdesign/core@0.7.3, then npx @astryxdesign/cli@0.7.3 upgrade --from 0.7.1 --apply',
+      'To upgrade, run: npm install @astryxdesign/core@0.7.3 @astryxdesign/cli@0.7.3, then npx astryx upgrade --from 0.7.1 --apply',
       'The astryx command on this computer runs CLI 0.7.1, which answers every folder itself.',
-      'To upgrade, run: npm i -g @astryxdesign/cli@latest',
+      oldUpgrade,
     ]);
     expect(
       noticeLines({...input, stateDir: tempDir('fresh'), now: 10}),
     ).toEqual([
       'The astryx command on this computer runs CLI 0.7.1, which answers every folder itself.',
-      'To upgrade, run: npm i -g @astryxdesign/cli@latest',
+      oldUpgrade,
     ]);
   });
 

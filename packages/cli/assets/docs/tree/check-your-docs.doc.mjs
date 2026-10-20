@@ -1,9 +1,9 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 /**
- * @file `astryx docs cli/integrations/docs/check-your-docs`: what each check
- * proves about an integration's docs: the docs check, each doc's fields, the
- * read size, and the CLI peer.
+ * @file `astryx docs cli/integrations/building-blocks/docs/check-your-docs`:
+ * what each check proves about an integration's docs: the docs check, each
+ * doc's fields, the read size, and the CLI peer.
  */
 
 /** @type {import('@astryxdesign/cli/authoring').ReferenceDoc} */
@@ -46,7 +46,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: 'A doc that does not load, an accidental Core overlap, or a failed namespace or placement fails the check with exit code 1. A link that names no doc only warns, and the exit code stays 0.',
+          text: 'A doc that does not load, an accidental Core overlap, a `reference` block that names no doc, or a failed namespace or placement fails the check with exit code 1. A link that names no doc only warns, and the exit code stays 0.',
         },
         {
           type: 'table',
@@ -65,6 +65,11 @@ export const docs = {
             [
               'A placement that fails, which hides the doc',
               '`[fail]` `invalid_doc_graph`',
+              '1',
+            ],
+            [
+              'A `reference` block whose target names no doc',
+              '`[fail]` `invalid_doc_reference`',
               '1',
             ],
             ['A link that names no doc', '`[warn]` `invalid_doc_graph`', '0'],

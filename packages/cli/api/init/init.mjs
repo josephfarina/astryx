@@ -36,22 +36,6 @@ export {getNextSteps} from './run/run.mjs';
  */
 
 /**
- * `--agent` with `--user` takes a comma-separated list of agent names.
- * @param {string} value
- * @returns {string[]}
- */
-function splitAgents(value) {
-  return [
-    ...new Set(
-      String(value)
-        .split(',')
-        .map(name => name.trim())
-        .filter(Boolean),
-    ),
-  ];
-}
-
-/**
  * Run the non-interactive init flow. Dispatches to the user leaf when
  * `--user` is set (it writes, or with `--remove-agents` removes, the
  * computer-level agent text and nothing in the folder), to the remove leaf
@@ -72,21 +56,16 @@ export async function init(options = {}, {cwd = process.cwd()} = {}) {
       options.features ? '--features' : null,
       options.all ? '--all' : null,
       options.agentDocsPath ? '--agent-docs-path' : null,
-      options.removeAgents && options.agent ? '--agent' : null,
+      options.agent ? '--agent' : null,
     ].filter(Boolean);
     if (refused.length > 0) {
       throw new AstryxError(
-        options.removeAgents && options.agent && refused.length === 1
-          ? '`--user --remove-agents` cannot be combined with `--agent`: it removes every file of the computer-level agent text. To keep only some agents, run `astryx init --user --agent <names>`.'
-          : `\`--user\` cannot be combined with ${refused.join(', ')}: it writes only the computer-level agent text, which has no features and no path choice.`,
+        `\`--user\` cannot be combined with ${refused.join(', ')}: it writes one skill file for every agent on the computer, linked into the folders agents read, with no features, agents, or path to choose.`,
         undefined,
         ERROR_CODES.ERR_INVALID_ARGUMENT,
       );
     }
-    return user({
-      remove: Boolean(options.removeAgents),
-      agents: options.agent ? splitAgents(options.agent) : null,
-    });
+    return user({remove: Boolean(options.removeAgents)});
   }
   if (options.removeAgents) {
     const ignored = [

@@ -125,7 +125,7 @@ export const doc = {
   notes: [
     {
       type: 'prose',
-      text: "In global mode: outside a project, integration add writes nothing and fails before doing any work, naming the app project it needs. To use an integration outside projects, install it for your computer beside the CLI. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:computer-integrations}.",
+      text: "In global mode: outside a package, integration add writes nothing and stops with `ERR_FILE_NOT_FOUND`: \"No package.json found. Run this command inside an integration package.\" In a project, the project's version of Astryx runs it, whichever astryx command you start. See {@link namespace:global} and {@link generic:global-integrations}.",
     },
   ],
 };

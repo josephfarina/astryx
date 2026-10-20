@@ -50,7 +50,7 @@ export const doc = {
   notes: [
     {
       type: 'prose',
-      text: "In global mode: outside a project, theme add with no slug lists the themes available, as in a new project; given a slug, it writes nothing and names the app project it needs. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:who-answers}.",
+      text: 'In global mode: outside a project, theme add with no slug lists the themes available, as in a new project; with a slug it writes nothing and stops with `ERR_THEME_INVALID`: "No package.json found. Run this command inside an app project." In a project, the project\'s version of Astryx runs it, whichever astryx command you start. See {@link namespace:global} and {@link generic:problems}.',
     },
   ],
 };

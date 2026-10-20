@@ -25,7 +25,7 @@ export const doc = {
     'component (its doc sets replaces, and its package declares the CLI range that ' +
     'turns replacement on) answers to the Core name in detail, batch, and list ' +
     "results; use options.package '@astryxdesign/core' for the original." +
-    " In global mode: with `cwd` outside a project, components from integrations installed beside this CLI package (installed for the computer) resolve too; inside a project, only the project's own integrations count. See {@link namespace:global} and {@link generic:computer-integrations}.",
+    " In global mode: with `cwd` outside a project, components from integrations installed next to this CLI package globally resolve too; inside a project, only the project's own integrations count. See {@link namespace:global} and {@link generic:computer-integrations}.",
   importPath: '@astryxdesign/cli/api',
   signature:
     'component(name?: string | string[], options?: ComponentOptions): Promise<ComponentListResponse | ComponentBatchResponse | ComponentDetailResponse | ComponentDetailPropsResponse | ComponentDetailSourceResponse | ComponentDetailShowcaseResponse | ComponentDetailBlocksResponse>',

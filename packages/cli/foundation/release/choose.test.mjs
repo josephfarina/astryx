@@ -379,4 +379,17 @@ describe('isComputerLevel', () => {
     expect(isComputerLevel(['init'])).toBe(false);
     expect(isComputerLevel(['docs', 'init', '--user'])).toBe(false);
   });
+
+  it('is docs global and its pages, whatever the options', () => {
+    expect(isComputerLevel(['docs', 'global'])).toBe(true);
+    expect(isComputerLevel(['--json', 'docs', 'global/problems'])).toBe(true);
+    expect(isComputerLevel(['docs', '--depth', '2', 'global'])).toBe(true);
+    expect(isComputerLevel(['docs', '--lang', 'zh', 'global/updates'])).toBe(
+      true,
+    );
+    expect(isComputerLevel(['docs'])).toBe(false);
+    expect(isComputerLevel(['docs', 'globals'])).toBe(false);
+    expect(isComputerLevel(['docs', 'cli/global'])).toBe(false);
+    expect(isComputerLevel(['search', 'global'])).toBe(false);
+  });
 });

@@ -1,83 +1,75 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 /**
- * @file `astryx docs cli/global/who-answers`: which release answers in each
- * folder, how a run is handed to it, and how to see which one did (spec
- * AST-081 FR2, FR3, FR5, FR9, FR11).
+ * @file `astryx docs global/who-answers`: which version answers in each folder, the
+ * hand-off, and how to see who answered (spec AST-081 FR2, FR3, FR5, FR9).
  */
 
 /** @type {import('@astryxdesign/cli/authoring').ReferenceDoc} */
 export const docs = {
   type: 'generic',
   name: 'who-answers',
-  placement: {parent: 'namespace:global', slot: 'guides', order: 2},
-  title: 'Which release answers, and why',
+  placement: {
+    parent: 'namespace:global',
+    slot: 'guides',
+    order: 3,
+  },
+  title: 'Which version runs, and why',
   category: 'guide',
   keywords: [
-    'which version',
     'which release',
+    'wrong version',
+    'different version',
+    'answered by',
+    'answeredBy',
     'hand-off',
     'handed over',
-    'answeredBy',
-    'matched release',
-    'project CLI',
-    'outside a project',
-    'nested project',
-    'wrong version',
-    'different release',
+    'project version',
   ],
   description:
-    "Inside a project, the release equal to the project's Core answers every command, whichever copy you start; outside a project, the copy you started answers. How a run is handed over, and how to see who answered.",
+    'Inside a project, Astryx runs the version that matches the project, whichever astryx command you start. Outside a project, your global install answers. How to see which one did.',
   sections: [
     {
       id: 'in-a-project',
-      title: "In a project, the project's Core decides",
+      title: "In a project, the project's version",
       content: [
         {
           type: 'prose',
-          text: "Templates, docs, and agent text come from a CLI release, and components from a Core release. When the two differ, an agent gets code the project's Core may reject, with no error to say so. So in a project, the release equal to the project's Core answers every command:",
+          text: "Components come from `@astryxdesign/core`, and templates, docs, and agent guides come from the CLI. When the two versions differ, an agent can get code the project's Core rejects. So in a project, Astryx always runs the CLI version that matches the project's Core:",
         },
         {
           type: 'list',
           style: 'unordered',
           items: [
-            'The project installs the CLI at the same version as its Core: that CLI answers. Any other copy hands the run to it.',
-            "The project's CLI is another version, or the project installs only Core: the CLI release equal to the Core answers. The CLI installs it once into your per-user cache and reuses it.",
-            'Nothing is installed yet, as in a fresh clone: the release comes from the Core version the lockfile records, else the newest release the declared Core range allows.',
-            '`astryx upgrade` follows the same rule, so it runs the codemods of the release equal to the Core you installed.',
+            "The project installs the CLI at that version, as recommended: that CLI runs. When you type the global astryx command instead, it passes the run to the project's CLI, with the same arguments, input, output, and exit status, so either command gives the same answer.",
+            'The project installs another CLI version, or only Core: Astryx runs the matching version from its cache, installing it there the first time. Installing the matching CLI in the project avoids that download.',
+            'Nothing is installed yet, as in a fresh clone: the version comes from the Core version in the lockfile, else the newest one the declared range allows.',
+            '`astryx upgrade` follows the same rule, so it runs the codemods of the version that matches the Core you installed.',
           ],
         },
+      ],
+    },
+    {
+      id: 'outside',
+      title: 'Outside a project, your global install',
+      content: [
         {
           type: 'prose',
-          text: "A copy hands a run over before it reads anything of the project, with the same arguments, folder, input, and output, and ends with that release's exit status. A version you type, such as `npx @astryxdesign/cli@0.7.0`, does not change the release that answers inside a project.",
+          text: 'In a folder that belongs to no project, your global install answers as a brand-new project on its version would, so you and your agents can read every component and doc. It never installs a newer version by itself.',
         },
         {
           type: 'prose',
-          text: "A project is found from the folder you run in: the Core or the CLI installed there or a few folders above it, else the nearest `package.json` that declares either one, up to the repository root. A folder inside another project, such as a nested app or a cloned repository, answers with that project's release. A repository that builds the CLI itself, with the CLI package in `packages/cli` beside Core in `packages/core`, answers with that CLI. Folder names are compared the way your file system compares them, so a folder typed in another letter case on macOS or Windows, or reached through a link, answers as the folder does.",
+          text: 'A few commands work on your computer rather than a folder, such as `astryx init --user`: your global install answers them in any folder.',
         },
       ],
     },
     {
-      id: 'outside-a-project',
-      title: 'Outside a project, your installed release answers',
+      id: 'see-it',
+      title: 'See which version answered',
       content: [
         {
           type: 'prose',
-          text: 'In a folder that belongs to no project, the CLI answers as a new project on its release would, so an agent with no project files can still read every component and doc. Commands that read Core use the Core of the answering release, installed into the per-user cache the first time one needs it. `doctor`, `swizzle`, and `upgrade` judge or change a project and never use it.',
-        },
-        {
-          type: 'prose',
-          text: 'The CLI you installed for your computer answers with its own release. It never installs a newer one by itself: it tells you when one exists, the way `gh` and the Vercel CLI do, and you upgrade it with your package manager.',
-        },
-      ],
-    },
-    {
-      id: 'who-answered',
-      title: 'See which release answered',
-      content: [
-        {
-          type: 'prose',
-          text: "In text mode, a run prints one line on standard error when a copy hands it to the project's own CLI, when the release matching the project's Core answers, or outside a project. A run you start in the project's own CLI, which answers it directly, prints none, except `astryx init --user`, which always answers for your computer and says so:",
+          text: "In text mode, one line on standard error names the version, unless the project's own CLI answered directly:",
         },
         {
           type: 'code',
@@ -86,16 +78,22 @@ export const docs = {
         },
         {
           type: 'prose',
-          text: 'With `--json` nothing extra is printed. Every successful result carries `meta.answeredBy`: `cli` (the version that answered), `core` (the Core it paired with, or `null`), and `copy` (`project`, `matched`, or `carried`).',
+          text: 'With `--json` nothing extra prints; every result carries `meta.answeredBy` instead ({@link generic:reference}):',
         },
         {
           type: 'code',
           lang: 'json',
           code: '{"meta": {"answeredBy": {"cli": "0.6.8", "core": "0.6.8", "copy": "matched"}}}',
         },
+      ],
+    },
+    {
+      id: 'printed-commands',
+      title: 'Commands Astryx prints',
+      content: [
         {
           type: 'prose',
-          text: "Commands the CLI prints for you to run start with a name that reaches the same release: the project's runner (`npx astryx`) when its own CLI answered, `astryx` outside a project when the CLI installed for your computer answered, and otherwise the CLI package pinned to the release, such as `npx @astryxdesign/cli@0.6.8`.",
+          text: "Commands the CLI prints for you to run start with a name that reaches the same version: the project's runner (`npx astryx`) in a project, `astryx` outside a project when your global install answered, and otherwise the CLI pinned to the version, such as `npx @astryxdesign/cli@0.6.8`. An integration can name its own command: {@link generic:cli-command}.",
         },
       ],
     },
@@ -105,7 +103,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: 'This page is part of {@link namespace:global}, which explains why to install the CLI for your computer and how each part works. To check your computer, run `astryx doctor` in a folder outside any project: it reports the release that answered, the newest release it knows of, and every `astryx` on your search path ({@link command:doctor}).',
+          text: 'This page is part of {@link namespace:global}, which explains what global mode is and how each part works. To check your computer, run `astryx doctor` outside any project ({@link command:doctor}). Monorepos: {@link generic:monorepos}.',
         },
       ],
     },

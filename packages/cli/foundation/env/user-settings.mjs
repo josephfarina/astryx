@@ -7,16 +7,16 @@
  * It holds the person's choices about the computer-level agent text:
  *
  * ```json
- * {"computerAgentText": {"install": true, "agents": ["claude", "codex"]}}
+ * {"computerAgentText": {"install": true, "links": ["/home/me/.claude/skills/astryx"]}}
  * ```
  *
  * - `computerAgentText.install`: `false` after `astryx init --user
  *   --remove-agents`, `true` after `astryx init --user`. A missing file or
  *   value means install.
- * - `computerAgentText.agents`: the agent names chosen with `astryx init
- *   --user --agent <names>`; absent for every agent.
+ * - `computerAgentText.links`: the links to the skill folder Astryx made, so
+ *   removal removes exactly those.
  *
- * Only `astryx init --user` changes it. No environment variable or option
+ * Only `astryx init --user` and the global copy's refresh change it. No environment variable or option
  * does. A file that cannot be read or parsed counts as missing, and one that
  * cannot be written never fails a run.
  *
@@ -32,8 +32,8 @@ import {userConfigDir} from './user-dirs.mjs';
 /**
  * @typedef {object} ComputerAgentTextSettings
  * @property {boolean} install Whether the computer-level text is wanted.
- * @property {string[] | null} agents The chosen agent names, or `null` for
- *   every agent.
+ * @property {string[]} links The links to its skill folder Astryx made, so
+ *   removal removes exactly those.
  */
 
 /**
@@ -72,13 +72,10 @@ export function computerAgentTextSettings(configDir = userConfigDir()) {
     raw && typeof raw === 'object' && !Array.isArray(raw)
       ? /** @type {Record<string, unknown>} */ (raw)
       : {};
-  const agents = Array.isArray(value.agents)
-    ? value.agents.filter(name => typeof name === 'string')
-    : null;
-  return {
-    install: value.install !== false,
-    agents: agents && agents.length > 0 ? agents : null,
-  };
+  const links = Array.isArray(value.links)
+    ? value.links.filter(link => typeof link === 'string')
+    : [];
+  return {install: value.install !== false, links};
 }
 
 /**
@@ -94,9 +91,7 @@ export function recordComputerAgentTextSettings(
 ) {
   const next = {
     ...readSettings(configDir),
-    computerAgentText: choice.agents
-      ? {install: choice.install, agents: choice.agents}
-      : {install: choice.install},
+    computerAgentText: {install: choice.install, links: choice.links},
   };
   const file = settingsFile(configDir);
   try {

@@ -31,8 +31,8 @@ describe('checkNewestRelease', () => {
         root: '/app',
         current: '0.7.1',
         newest: '0.7.3',
-        install: 'npm install @astryxdesign/core@0.7.3',
-        upgrade: 'npx @astryxdesign/cli@0.7.3 upgrade --from 0.7.1 --apply',
+        install: 'npm install @astryxdesign/core@0.7.3 @astryxdesign/cli@0.7.3',
+        upgrade: 'npx astryx upgrade --from 0.7.1 --apply',
       },
     });
     expect(check).toEqual({
@@ -40,7 +40,7 @@ describe('checkNewestRelease', () => {
       label: 'Newest release',
       status: 'info',
       message: 'This project uses Astryx 0.7.1; 0.7.3 is the newest.',
-      fix: 'To upgrade, run: npm install @astryxdesign/core@0.7.3, then npx @astryxdesign/cli@0.7.3 upgrade --from 0.7.1 --apply.',
+      fix: 'To upgrade, run: npm install @astryxdesign/core@0.7.3 @astryxdesign/cli@0.7.3, then npx astryx upgrade --from 0.7.1 --apply.',
     });
   });
 

@@ -91,7 +91,7 @@ describe('route resolution', () => {
   it('lists the guides the sidebar listed before the splits, plus new topics only', () => {
     // The Guide section as it was before the CLI integration guide and the
     // other topics were split into short guides. `styling-overview` is a
-    // topic added since.
+    // topic added since; `global` is the Global mode page.
     const sidebarGuides = docTopics
       .filter(d => d.category === 'guide' && d.topic !== 'getting-started')
       .map(d => d.topic)
@@ -101,9 +101,9 @@ describe('route resolution', () => {
         'authoring',
         'browser-support',
         'cli-component-lookups',
-        'cli-global',
         'cli-integrations',
         'cli-writing-docs',
+        'global',
         'internationalization',
         'layout',
         'migration',
@@ -128,6 +128,30 @@ describe('route resolution', () => {
     }
     expect(docRedirects['cli-integrations-overview']).toBe(
       '/docs/cli-integrations',
+    );
+  });
+
+  it('shows global mode as one page under Guide, with its older slugs redirecting to it', () => {
+    expect(docTopics.find(d => d.topic === 'global')?.category).toBe('guide');
+    expect(pageBySlug.has('global')).toBe(true);
+    expect(pageBySlug.has('cli-global')).toBe(false);
+    expect(docRedirects['cli-global']).toBe('/docs/global');
+    expect(docRedirects['cli-install-once']).toBe('/docs/global');
+    for (const route of docsTreeRoutes) {
+      if (!route.startsWith('global/')) continue;
+      const slug = route.replaceAll('/', '-');
+      expect(docRedirects[slug], slug).toMatch(/^\/docs\/global#/);
+    }
+  });
+
+  it('shows commands that reach the CLI: npx @astryxdesign/cli, and plain astryx on the global mode page', () => {
+    const textOf = (topic: (typeof docTopics)[number]) =>
+      JSON.stringify(topic.sections);
+    const global = textOf(pageBySlug.get('global')!);
+    expect(global).toContain('`astryx docs global/');
+    expect(global).not.toContain('npx @astryxdesign/cli docs');
+    expect(textOf(pageBySlug.get('getting-started')!)).toContain(
+      'npx @astryxdesign/cli',
     );
   });
 

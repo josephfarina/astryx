@@ -69,7 +69,7 @@ export const doc = {
   notes: [
     {
       type: 'prose',
-      text: "In global mode: outside a project, swizzle writes nothing and fails before doing any work, naming the app project it needs, even though the CLI carries a Core there. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:who-answers}.",
+      text: 'In global mode: outside a project, swizzle writes nothing and stops with `ERR_CORE_NOT_FOUND`: "Could not find @astryxdesign/core package. Make sure you are inside the design system monorepo or have @astryxdesign/core installed." In a project, the project\'s version of Astryx runs it, whichever astryx command you start. See {@link namespace:global} and {@link generic:problems}.',
     },
   ],
 };

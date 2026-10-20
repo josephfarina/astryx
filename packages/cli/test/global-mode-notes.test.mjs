@@ -159,9 +159,15 @@ describe('global mode notes', () => {
       if (doc.placement?.parent === 'namespace:global') children.push(doc);
     }
     expect(children.map(c => c.name).sort()).toEqual([
+      'ci-and-containers',
       'computer-agent-guide',
       'computer-integrations',
       'install-once',
+      'monorepos',
+      'problems',
+      'project-global-or-both',
+      'reference',
+      'uninstall',
       'updates',
       'who-answers',
     ]);

@@ -25,46 +25,40 @@ afterEach(() => {
 });
 
 describe('the settings file (spec AST-081 FR8)', () => {
-  it('means install for every agent when missing or unreadable', () => {
+  it('means install, with no links, when missing or unreadable', () => {
     const dir = tmp();
-    expect(computerAgentTextSettings(dir)).toEqual({
-      install: true,
-      agents: null,
-    });
+    expect(computerAgentTextSettings(dir)).toEqual({install: true, links: []});
     fs.writeFileSync(settingsFile(dir), 'not json');
     expect(readSettings(dir)).toEqual({});
-    expect(computerAgentTextSettings(dir)).toEqual({
-      install: true,
-      agents: null,
-    });
+    expect(computerAgentTextSettings(dir)).toEqual({install: true, links: []});
   });
 
-  it('records and reads the choice, keeping other settings', () => {
+  it('records and reads the choice and the links Astryx made, keeping other settings', () => {
     const dir = tmp();
     fs.writeFileSync(settingsFile(dir), '{"other":true}');
     expect(
-      recordComputerAgentTextSettings({install: true, agents: ['claude']}, dir),
+      recordComputerAgentTextSettings(
+        {install: true, links: ['/h/.claude/skills/astryx']},
+        dir,
+      ),
     ).toBe(true);
     expect(JSON.parse(fs.readFileSync(settingsFile(dir), 'utf8'))).toEqual({
       other: true,
-      computerAgentText: {install: true, agents: ['claude']},
+      computerAgentText: {install: true, links: ['/h/.claude/skills/astryx']},
     });
     expect(computerAgentTextSettings(dir)).toEqual({
       install: true,
-      agents: ['claude'],
+      links: ['/h/.claude/skills/astryx'],
     });
-    recordComputerAgentTextSettings({install: false, agents: null}, dir);
-    expect(computerAgentTextSettings(dir)).toEqual({
-      install: false,
-      agents: null,
-    });
+    recordComputerAgentTextSettings({install: false, links: []}, dir);
+    expect(computerAgentTextSettings(dir)).toEqual({install: false, links: []});
   });
 
   it('never fails when the folder cannot be written', () => {
     const file = path.join(tmp(), 'file');
     fs.writeFileSync(file, '');
     expect(
-      recordComputerAgentTextSettings({install: false, agents: null}, file),
+      recordComputerAgentTextSettings({install: false, links: []}, file),
     ).toBe(false);
   });
 });

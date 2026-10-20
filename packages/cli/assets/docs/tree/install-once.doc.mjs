@@ -1,76 +1,93 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 /**
- * @file `astryx docs cli/global/install-once`: install the CLI for the computer,
- * the copies that can start a run, the per-user release cache, and working
- * offline (spec AST-081).
+ * @file `astryx docs global/install-once`: install the CLI for the computer with each
+ * package manager; the cache of versions projects need; offline (spec AST-081).
  */
 
 /** @type {import('@astryxdesign/cli/authoring').ReferenceDoc} */
 export const docs = {
   type: 'generic',
   name: 'install-once',
-  placement: {parent: 'namespace:global', slot: 'guides', order: 1},
-  title: 'Install the CLI for your computer',
+  placement: {
+    parent: 'namespace:global',
+    slot: 'guides',
+    order: 2,
+  },
+  title: 'Install Astryx globally',
   category: 'guide',
   keywords: [
-    'npm i -g',
     'pnpm add -g',
     'yarn global add',
     'bun add -g',
-    'install globally',
-    'global install',
-    'cache',
+    'volta install',
+    'npx',
     'offline',
-    'ERR_VERSIONS_UNAVAILABLE',
+    'cache',
     'per-user cache',
+    'EACCES',
+    'permission denied',
+    'sudo',
+    'npm prefix',
   ],
   description:
-    'Install the CLI once for your computer with npm, pnpm, Yarn, or Bun; where the releases projects need are kept, and what happens offline.',
+    'Install the Astryx CLI once for your computer with npm, pnpm, Yarn, Bun, or Volta, and what happens when you are offline.',
   sections: [
     {
       id: 'install',
-      title: 'Install it once',
+      title: 'Install it',
       content: [
         {
           type: 'prose',
-          text: 'Install the CLI package for your computer with your package manager. That one `astryx` command then works in every folder, inside projects and outside them.',
+          text: 'Install the CLI package with your package manager. One astryx command then works in every folder.',
         },
         {
           type: 'code',
           lang: 'bash',
-          code: 'npm i -g @astryxdesign/cli\n# or: pnpm add -g @astryxdesign/cli · yarn global add @astryxdesign/cli · bun add -g @astryxdesign/cli',
+          code: 'npm i -g @astryxdesign/cli\n# or: pnpm add -g @astryxdesign/cli · yarn global add @astryxdesign/cli · bun add -g @astryxdesign/cli · volta install @astryxdesign/cli',
         },
         {
           type: 'prose',
-          text: "A project can still install the CLI as a dev dependency, and a package runner (`npx @astryxdesign/cli`) still works. Inside a project, every copy follows the same rules, so the project's release answers whichever one you start ({@link generic:who-answers}). Outside a project, the copy you installed for your computer answers with its own release, while a package runner's copy, or a version you type such as `npx @astryxdesign/cli@0.7.0`, answers as exactly that release.",
+          text: "Keep the CLI installed in each project too: that pins its version for teammates and CI ({@link generic:project-global-or-both}). Inside a project, whichever astryx command you type, the project's version answers. Outside a project, your global install answers with its own version, and a version you name, such as `npx @astryxdesign/cli@0.7.0`, answers as exactly that version.",
         },
       ],
     },
     {
-      id: 'cache-and-offline',
-      title: 'The cache, and working offline',
+      id: 'eacces',
+      title: 'Permission denied (EACCES)',
       content: [
         {
           type: 'prose',
-          text: "Releases live in your platform's per-user cache directory, under `astryx/releases/<version>`: `~/.cache/astryx` on Linux (or `$XDG_CACHE_HOME/astryx`), `~/Library/Caches/astryx` on macOS, and `%LOCALAPPDATA%\\astryx\\Cache` on Windows. The CLI installs them with npm, so your npm registry, proxy, and offline settings apply. Deleting the folder is safe; releases come back when a run needs them.",
-        },
-        {
-          type: 'prose',
-          text: "When the release a run needs is not in the cache and cannot be installed, the run fails before writing anything, with `ERR_VERSIONS_UNAVAILABLE` and the release it needs. Installing the project's dependencies, or running again when the registry can be reached, fixes it. No other release answers in its place.",
-        },
-        {
-          type: 'prose',
-          text: 'The first run that needs a release prints one line while it installs (`astryx: installing CLI release 0.6.8 into the per-user cache (once)...`), and a run that finds another run installing it waits and says so. A slow download is waited for, up to 15 minutes. A run stopped mid-install leaves nothing behind that blocks the next one, and a cached release whose files were damaged is installed again the next time a run needs it. When several computers share one cache folder, a run installing a release renews its claim every 10 seconds, and a claim from another computer that goes a minute without renewal is taken over.',
-        },
-        {
-          type: 'prose',
-          text: "In a Yarn Plug'n'Play project, the CLI cannot see the project's own CLI without running the project's loader, so the release equal to the project's Core answers from the cache. That is the same release whenever the project's CLI matches its Core.",
+          text: 'If `npm i -g` fails with `EACCES`, do not use `sudo`. Give npm a global folder you own, then add its `bin` folder to your PATH, or use a Node version manager such as nvm, fnm, or Volta:',
         },
         {
           type: 'code',
-          lang: 'text',
-          code: "Error: This project needs CLI release 0.6.8, which is not available: the registry could not be reached. Install the project's dependencies, or run again when the package registry can be reached.",
+          lang: 'bash',
+          code: 'npm config set prefix ~/.npm-global\nexport PATH="$HOME/.npm-global/bin:$PATH"\nnpm i -g @astryxdesign/cli',
+        },
+        {
+          type: 'prose',
+          text: "Astryx's update notice then names that folder in its upgrade command.",
+        },
+      ],
+    },
+    {
+      id: 'versions-for-projects',
+      title: 'Versions for your projects',
+      content: [
+        {
+          type: 'prose',
+          text: 'When a project needs a version you do not have, such as a fresh clone or a project that installs only `@astryxdesign/core`, Astryx installs that version once into a cache in your home folder and reuses it. It uses npm for that, so your npm registry, proxy, and offline settings apply. Deleting the cache is safe: versions come back when a project needs them. Where it lives: {@link generic:reference}.',
+        },
+      ],
+    },
+    {
+      id: 'offline',
+      title: 'Offline',
+      content: [
+        {
+          type: 'prose',
+          text: "Outside a project, your global install works offline. In a project, the project's own CLI or a cached version also works offline. When the project's version is neither installed nor cached and cannot be fetched, the project's own CLI answers if it installs one, else your global install, with a one-line warning; install the project's dependencies, or run again online. {@link generic:problems} has the exact message.",
         },
       ],
     },
@@ -80,7 +97,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: 'This page is part of {@link namespace:global}, which explains why to install the CLI for your computer and how each part works. Next: {@link generic:who-answers}.',
+          text: 'This page is part of {@link namespace:global}, which explains what global mode is and how each part works. Next: {@link generic:who-answers}.',
         },
       ],
     },

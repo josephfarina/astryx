@@ -1,10 +1,12 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 /**
- * @file The computer-level agent text (spec AST-081 FR7, FR8): its rendering
- * from the project block's source, the two files it writes and removes, the
- * files it keeps, the search-path check behind its warning, and the rule that
- * only `init --user` writes it. Every test uses a temporary home folder.
+ * @file The computer-level agent text (spec AST-081 FR7, FR8): its two
+ * renderings, version-free and naming only stable commands; the one file it
+ * writes and the links it makes from the one table; what it keeps; exact
+ * removal; the search-path check behind its warning; and the rule that only
+ * `init --user` and the background step write it. Every test uses a temporary
+ * home folder.
  */
 
 import * as fs from 'node:fs';
@@ -15,27 +17,25 @@ import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
-  COMPUTER_AGENT_FILES,
-  COMPUTER_AGENTS,
-  allComputerAgentTextPaths,
+  COMPUTER_AGENT_TEXT_VARIANTS,
+  SKILL_LINKS,
+  STABLE_COMMANDS,
   astryxOnSearchPath,
-  computerAgentTextPaths,
-  unknownComputerAgents,
+  computerSkillFile,
+  computerSkillLinks,
   inspectComputerAgentText,
   removeComputerAgentText,
   renderComputerAgentText,
   writeComputerAgentText,
 } from './computer-agent-text.mjs';
-import {generateCompressedIndex, parseBlockVersion} from './agent-docs.mjs';
 import {MARKER_END, MARKER_START} from './agent-doc-state.mjs';
 import {runWithCliDoor} from '../env/cli-command.mjs';
 import {runCli} from '../../test-utils/run-cli.mjs';
 import {parse as parseYaml} from 'yaml';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-
-/** The hash line Astryx records right after the start marker. */
-const HASH_LINE = /^<!-- astryx-managed sha256:[0-9a-f]{64} -->\n/mu;
+const CLI_ROOT = path.resolve(HERE, '../..');
+const CORE_ROOT = path.resolve(CLI_ROOT, '../core');
 
 /**
  * An Astryx file as some other release would write it: the given text with
@@ -50,8 +50,6 @@ function unedited(text) {
     `${MARKER_START}\n<!-- astryx-managed sha256:${hash} -->\n`,
   );
 }
-const CLI_ROOT = path.resolve(HERE, '../..');
-const CORE_ROOT = path.resolve(CLI_ROOT, '../core');
 
 /** @type {string[]} */
 const dirs = [];
@@ -78,297 +76,286 @@ afterEach(() => {
   }
 });
 
-const SKILLS = [
-  path.join('.agents', 'skills', 'astryx', 'SKILL.md'),
-  path.join('.claude', 'skills', 'astryx', 'SKILL.md'),
-];
+const FILE = () => computerSkillFile(home);
+const FOLDER = () => path.dirname(FILE());
+const CLAUDE = () => path.join(home, '.claude', 'skills', 'astryx');
 
-describe('generateCompressedIndex scope', () => {
-  const integrations = [{package: 'acme-kit', append: ['Use AcmeButton.']}];
-
-  it('computer: no version, no count, no integrations, the CSS line, and the lead line', () => {
-    const text = generateCompressedIndex('9.9.9', {
-      scope: 'computer',
-      invocation: 'astryx',
-      stylingSystem: 'stylex',
-      agentDocs: integrations,
-    });
-    expect(text.startsWith(MARKER_START)).toBe(true);
-    expect(text.endsWith(MARKER_END)).toBe(true);
-    expect(parseBlockVersion(text)).toBeNull();
-    expect(text).not.toContain('9.9.9');
-    expect(text).not.toMatch(/\d+\+? components/);
-    expect(text).not.toContain('INTEGRATIONS');
-    expect(text).not.toContain('acme-kit');
-    expect(text).toContain('No StyleX/Tailwind compiler here');
-    expect(text).not.toContain('xstyle prop / StyleX tokens');
-    expect(text.split('\n')[2]).toMatch(
-      /^Inside a project with its own Astryx agent docs .*follow those instead: they match that project's release\.$/,
-    );
-  });
-
-  it('project and computer differ only in the wrapper', () => {
-    const project = generateCompressedIndex('1.2.3', {invocation: 'astryx'});
-    const computer = generateCompressedIndex(null, {
-      scope: 'computer',
-      invocation: 'astryx',
-    });
-    const from = (/** @type {string} */ text) =>
-      text.slice(text.indexOf('CLI: run every command'));
-    expect(from(computer)).toBe(from(project));
-    expect(parseBlockVersion(project)).toBe('1.2.3');
-  });
-});
+/** @param {string} at */
+const isLinkToFolder = at =>
+  fs.lstatSync(at).isSymbolicLink() &&
+  fs.realpathSync(at) === fs.realpathSync(FOLDER());
 
 describe('renderComputerAgentText', () => {
-  it('is a skill named astryx with a when-to-use description, then the computer body', () => {
-    const text = renderComputerAgentText({command: 'astryx'});
-    const lines = text.split('\n');
-    expect(lines[0]).toBe('---');
-    expect(lines[1]).toBe('name: astryx');
-    expect(lines[2]).toMatch(/^description: .*Use when /);
-    expect(lines[3]).toBe('---');
-    // Strict YAML: an agent tool with a strict parser drops a skill whose
-    // frontmatter does not parse.
-    const front = parseYaml(lines.slice(1, 3).join('\n'), {
-      strict: true,
-      uniqueKeys: true,
-    });
-    expect(front).toEqual({
-      name: 'astryx',
-      description: expect.stringContaining('Use when'),
-    });
-    expect(front.description).toContain(': ');
-    expect(text.replace(HASH_LINE, '')).toContain(
-      generateCompressedIndex(null, {scope: 'computer', invocation: 'astryx'}),
+  it.each(COMPUTER_AGENT_TEXT_VARIANTS)(
+    '%s: a skill named astryx with a one-sentence when-to-use description, in strict YAML',
+    variant => {
+      const text = renderComputerAgentText({command: 'astryx', variant});
+      const [, front] = text.split('---\n');
+      const meta = parseYaml(front);
+      expect(meta.name).toBe('astryx');
+      expect(meta.description).toMatch(/design system and UI library/);
+      expect(meta.description).toMatch(/building or changing UI/);
+      expect(meta.description).toMatch(/@astryxdesign/);
+      expect(
+        meta.description.split(/[.!?](\s|$)/u).filter(Boolean),
+      ).toHaveLength(1);
+      expect(text).toContain(MARKER_START);
+      expect(text).toContain(MARKER_END);
+      expect(text).toContain(
+        'Astryx, a design system and UI library, is available on this computer.',
+      );
+      expect(text).toContain(
+        'Use it when you build or change UI, pick components, or style or theme an app.',
+      );
+      expect(text).toContain("Start with `astryx search '<what you need>'`.");
+    },
+  );
+
+  it.each(COMPUTER_AGENT_TEXT_VARIANTS)(
+    '%s: is version-free and names only stable commands',
+    variant => {
+      const text = renderComputerAgentText({command: 'astryx', variant});
+      // No version string anywhere: not a release, a Node range, or a tag.
+      expect(text).not.toMatch(/\bv?\d+\.\d+(\.\d+)?\b/u);
+      expect(text).not.toMatch(/@(latest|next|canary)\b/u);
+      const commands = [...text.matchAll(/`astryx ([a-z-]+)/gu)].map(m => m[1]);
+      expect(commands.length).toBeGreaterThan(0);
+      expect(commands.filter(c => !STABLE_COMMANDS.includes(c))).toEqual([]);
+    },
+  );
+
+  it('long is the default, and short stays short', () => {
+    expect(renderComputerAgentText({command: 'astryx'})).toBe(
+      renderComputerAgentText({command: 'astryx', variant: 'long'}),
     );
-    // The hash it records is of the file's text without that line.
-    const [, recorded] = /sha256:([0-9a-f]{64})/u.exec(text) ?? [];
-    expect(recorded).toBe(
-      createHash('sha256').update(text.replace(HASH_LINE, '')).digest('hex'),
-    );
-    expect(text).toContain('run every command as `astryx <cmd>`');
+    const lines = (/** @type {'long' | 'short'} */ variant) =>
+      renderComputerAgentText({command: 'astryx', variant}).split('\n').length;
+    expect(lines('short')).toBeLessThanOrEqual(15);
+    expect(lines('long')).toBeLessThanOrEqual(40);
   });
 
   it("uses the host's door when one is set", () => {
     const text = runWithCliDoor('acme astryx', () => renderComputerAgentText());
-    expect(text).toContain('run every command as `acme astryx <cmd>`');
+    expect(text).toContain("`acme astryx search '<what you need>'`");
+    expect(text).not.toMatch(/`astryx /u);
+  });
+});
+
+describe('the link table', () => {
+  it('is data: each entry names a skills folder, the folder it needs, and link or copy; Claude Code always', () => {
+    expect(SKILL_LINKS[0]).toEqual({
+      skills: path.join('.claude', 'skills'),
+      when: null,
+      mode: 'link',
+    });
+    for (const place of SKILL_LINKS) {
+      expect(path.isAbsolute(place.skills)).toBe(false);
+      expect(place.skills.endsWith('skills')).toBe(true);
+      expect(['link', 'copy']).toContain(place.mode);
+    }
+    // Continue's scanner skips links, so it is the one copy.
+    expect(
+      SKILL_LINKS.filter(p => p.mode === 'copy').map(p => p.skills),
+    ).toEqual([path.join('.continue', 'skills')]);
+    // Never a store another tool manages.
+    for (const place of SKILL_LINKS) {
+      expect(place.skills).not.toBe(path.join('.codex', 'skills'));
+      expect(place.skills).not.toBe(path.join('.config', 'muse', 'skills'));
+    }
+    expect(computerSkillLinks(home).map(l => l.wanted)).toEqual(
+      SKILL_LINKS.map(l => l.when == null),
+    );
+  });
+});
+
+describe('links and the copy', () => {
+  it.skipIf(process.platform === 'win32')(
+    'links with a relative target',
+    () => {
+      writeComputerAgentText({home, command: 'astryx'});
+      expect(fs.readlinkSync(CLAUDE())).toBe(
+        path.join('..', '..', '.agents', 'skills', 'astryx'),
+      );
+    },
+  );
+
+  it('links ~/.config/agents/skills only when that folder already exists', () => {
+    const kimi = path.join(home, '.config', 'agents', 'skills');
+    expect(writeComputerAgentText({home, command: 'astryx'}).links).toEqual([
+      CLAUDE(),
+    ]);
+    fs.mkdirSync(kimi, {recursive: true});
+    expect(writeComputerAgentText({home, command: 'astryx'}).links).toEqual([
+      CLAUDE(),
+      path.join(kimi, 'astryx'),
+    ]);
+  });
+
+  it('writes, refreshes, and removes a managed copy for Continue, whose scanner skips links', () => {
+    fs.mkdirSync(path.join(home, '.continue'));
+    const copy = path.join(home, '.continue', 'skills', 'astryx');
+    const {rows, links} = writeComputerAgentText({home, command: 'astryx'});
+    expect(rows).toContainEqual({path: copy, action: 'written'});
+    expect(links).not.toContain(copy);
+    expect(fs.lstatSync(copy).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(copy, 'SKILL.md'), 'utf8')).toBe(
+      fs.readFileSync(FILE(), 'utf8'),
+    );
+    expect(
+      writeComputerAgentText({home, command: 'astryx'}).rows,
+    ).toContainEqual({
+      path: copy,
+      action: 'unchanged',
+    });
+    expect(removeComputerAgentText({home, links})).toContainEqual({
+      path: copy,
+      action: 'removed',
+    });
+    expect(fs.existsSync(copy)).toBe(false);
+  });
+
+  it('reports a link whose folder is missing as dangling', () => {
+    const {links} = writeComputerAgentText({home, command: 'astryx'});
+    fs.rmSync(FOLDER(), {recursive: true});
+    expect(inspectComputerAgentText({home, command: 'astryx', links})).toEqual([
+      {path: FILE(), state: 'absent'},
+      {path: CLAUDE(), state: 'dangling', link: true},
+    ]);
   });
 });
 
 describe('write, refresh, keep, remove', () => {
-  it('writes both files, creating their folders, then reports them unchanged', () => {
+  it('writes one file, links Claude Code to its folder, then reports both unchanged', () => {
     const first = writeComputerAgentText({home, command: 'astryx'});
-    expect(first).toEqual(
-      SKILLS.map(rel => ({path: path.join(home, rel), action: 'written'})),
+    expect(first.rows).toEqual([
+      {path: FILE(), action: 'written'},
+      {path: CLAUDE(), action: 'linked'},
+    ]);
+    expect(first.links).toEqual([CLAUDE()]);
+    expect(isLinkToFolder(CLAUDE())).toBe(true);
+    // An agent reading the linked folder reads the one file.
+    expect(fs.readFileSync(path.join(CLAUDE(), 'SKILL.md'), 'utf8')).toBe(
+      fs.readFileSync(FILE(), 'utf8'),
     );
-    for (const rel of SKILLS) {
-      expect(fs.readFileSync(path.join(home, rel), 'utf8')).toBe(
-        renderComputerAgentText({command: 'astryx'}),
-      );
-    }
-    expect(
-      writeComputerAgentText({home, command: 'astryx'}).map(f => f.action),
-    ).toEqual(['unchanged', 'unchanged']);
-    expect(
-      inspectComputerAgentText({home, command: 'astryx'}).map(f => f.state),
-    ).toEqual(['current', 'current']);
-  });
-
-  it('refreshes an unedited Astryx file whose text differs', () => {
-    writeComputerAgentText({home, command: 'astryx'});
-    const file = path.join(home, SKILLS[1]);
-    fs.writeFileSync(
-      file,
-      unedited(`---\nname: astryx\n---\n${MARKER_START}\nold\n${MARKER_END}\n`),
-    );
-    expect(
-      inspectComputerAgentText({home, command: 'astryx'}).map(f => f.state),
-    ).toEqual(['current', 'differs']);
-    expect(
-      writeComputerAgentText({home, command: 'astryx'}).map(f => f.action),
-    ).toEqual(['unchanged', 'written']);
-    expect(fs.readFileSync(file, 'utf8')).toBe(
-      renderComputerAgentText({command: 'astryx'}),
-    );
-  });
-
-  it.each([
-    [
-      'a line a person added',
-      (/** @type {string} */ t) => t.replace('RULES', 'RULES\nmy rule'),
-    ],
-    [
-      'an older file that records no hash',
-      (/** @type {string} */ t) =>
-        t.replace(HASH_LINE, '').replace('RULES', 'OLD'),
-    ],
-  ])('keeps an Astryx file with %s, on write and on remove', (_, edit) => {
-    writeComputerAgentText({home, command: 'astryx'});
-    const file = path.join(home, SKILLS[1]);
-    const mine = edit(fs.readFileSync(file, 'utf8'));
-    fs.writeFileSync(file, mine);
-    expect(
-      inspectComputerAgentText({home, command: 'astryx'}).map(f => f.state),
-    ).toEqual(['current', 'edited']);
-    expect(writeComputerAgentText({home, command: 'astryx'})).toEqual([
-      {path: path.join(home, SKILLS[0]), action: 'unchanged'},
-      {path: file, action: 'kept', reason: 'edited'},
-    ]);
-    expect(removeComputerAgentText({home})).toEqual([
-      {path: path.join(home, SKILLS[0]), action: 'removed'},
-      {path: file, action: 'kept', reason: 'edited'},
-    ]);
-    expect(fs.readFileSync(file, 'utf8')).toBe(mine);
-  });
-
-  it('writes only the files the chosen agents read, and removes the unedited one no chosen agent reads', () => {
-    writeComputerAgentText({home, command: 'astryx'});
-    expect(
-      writeComputerAgentText({home, command: 'astryx', agents: ['claude']}),
-    ).toEqual([
-      {path: path.join(home, SKILLS[0]), action: 'removed'},
-      {path: path.join(home, SKILLS[1]), action: 'unchanged'},
-    ]);
-    expect(fs.existsSync(path.join(home, SKILLS[0]))).toBe(false);
-    expect(
-      writeComputerAgentText({
-        home,
-        command: 'astryx',
-        agents: ['codex', 'gemini'],
-      }),
-    ).toEqual([
-      {path: path.join(home, SKILLS[0]), action: 'written'},
-      {path: path.join(home, SKILLS[1]), action: 'removed'},
-    ]);
-    expect(
-      inspectComputerAgentText({home, command: 'astryx', agents: ['copilot']}),
-    ).toEqual([{path: path.join(home, SKILLS[0]), state: 'current'}]);
-  });
-
-  it('maps every agent name to a file it names, and reports unknown names', () => {
-    const all = allComputerAgentTextPaths(home);
-    for (const name of COMPUTER_AGENTS) {
-      expect(all).toContain(path.join(home, COMPUTER_AGENT_FILES[name]));
-    }
-    expect(unknownComputerAgents(['claude', 'aider', 'codex'])).toEqual([
-      'aider',
+    expect(writeComputerAgentText({home, command: 'astryx'}).rows).toEqual([
+      {path: FILE(), action: 'unchanged'},
+      {path: CLAUDE(), action: 'unchanged'},
     ]);
   });
 
-  it('writes every file as a skill whose name matches its folder and whose frontmatter is strict YAML', () => {
-    writeComputerAgentText({
-      home,
-      command: 'astryx',
-      agents: [...COMPUTER_AGENTS],
-    });
-    for (const file of allComputerAgentTextPaths(home)) {
-      expect(fs.lstatSync(file).isFile()).toBe(true);
-      const text = fs.readFileSync(file, 'utf8');
-      const [, front] = /^---\n([\s\S]*?)\n---\n/u.exec(text) ?? [];
-      const parsed = parseYaml(front ?? '', {strict: true, uniqueKeys: true});
-      expect(parsed.name).toBe(path.basename(path.dirname(file)));
-      expect(parsed.name).toMatch(/^[a-z0-9-]{1,64}$/u);
-      expect(typeof parsed.description).toBe('string');
-    }
-  });
-
-  it("writes a single-tool file for every agent only when that tool's folder exists, and always when chosen", () => {
-    const kiro = path.join(home, '.kiro', 'skills', 'astryx', 'SKILL.md');
-    const cont = path.join(home, '.continue', 'skills', 'astryx', 'SKILL.md');
-    writeComputerAgentText({home, command: 'astryx'});
-    expect(fs.existsSync(kiro)).toBe(false);
+  it("links another agent's folder only when that agent's folder exists", () => {
     fs.mkdirSync(path.join(home, '.kiro'));
-    expect(
-      writeComputerAgentText({home, command: 'astryx'}).map(f => f.action),
-    ).toEqual(['unchanged', 'unchanged', 'written']);
-    expect(fs.readFileSync(kiro, 'utf8')).toBe(
+    const {links} = writeComputerAgentText({home, command: 'astryx'});
+    expect(links).toEqual([
+      CLAUDE(),
+      path.join(home, '.kiro', 'skills', 'astryx'),
+    ]);
+    expect(fs.existsSync(path.join(home, '.continue'))).toBe(false);
+  });
+
+  it('refreshes only the file; the links follow', () => {
+    writeComputerAgentText({home, command: 'astryx'});
+    fs.writeFileSync(
+      FILE(),
+      unedited(
+        `---\nname: astryx\n---\n\n${MARKER_START}\nold\n${MARKER_END}\n`,
+      ),
+    );
+    expect(inspectComputerAgentText({home, command: 'astryx'})[0].state).toBe(
+      'differs',
+    );
+    expect(writeComputerAgentText({home, command: 'astryx'}).rows).toEqual([
+      {path: FILE(), action: 'written'},
+      {path: CLAUDE(), action: 'unchanged'},
+    ]);
+    expect(fs.readFileSync(path.join(CLAUDE(), 'SKILL.md'), 'utf8')).toBe(
       renderComputerAgentText({command: 'astryx'}),
     );
+  });
+
+  it('keeps an edited file, a file without the markers, and anything at a link target Astryx did not create', () => {
+    fs.mkdirSync(FOLDER(), {recursive: true});
+    fs.writeFileSync(FILE(), 'my own notes\n');
+    fs.mkdirSync(CLAUDE(), {recursive: true});
+    fs.writeFileSync(path.join(CLAUDE(), 'SKILL.md'), 'my own skill\n');
+    const {rows, links} = writeComputerAgentText({home, command: 'astryx'});
+    expect(rows).toEqual([
+      {path: FILE(), action: 'kept', reason: 'not-astryx'},
+      {path: CLAUDE(), action: 'kept', reason: 'not-astryx'},
+    ]);
+    expect(links).toEqual([]);
+    expect(fs.readFileSync(FILE(), 'utf8')).toBe('my own notes\n');
     expect(
-      writeComputerAgentText({home, command: 'astryx', agents: ['continue']}),
-    ).toEqual([
-      {path: path.join(home, SKILLS[0]), action: 'removed'},
-      {path: path.join(home, SKILLS[1]), action: 'removed'},
-      {path: cont, action: 'written'},
-      {path: kiro, action: 'removed'},
-    ]);
-    expect(removeComputerAgentText({home})).toEqual([
-      {path: path.join(home, SKILLS[0]), action: 'absent'},
-      {path: path.join(home, SKILLS[1]), action: 'absent'},
-      {path: cont, action: 'removed'},
-    ]);
-  });
+      inspectComputerAgentText({home, command: 'astryx'}).map(e => e.state),
+    ).toEqual(['foreign', 'foreign']);
 
-  it('keeps a file without the Astryx markers, on write and on remove', () => {
-    const file = path.join(home, SKILLS[0]);
-    fs.mkdirSync(path.dirname(file), {recursive: true});
-    fs.writeFileSync(file, '---\nname: astryx\n---\nmy own notes\n');
-    expect(
-      writeComputerAgentText({home, command: 'astryx'}).map(f => f.action),
-    ).toEqual(['kept', 'written']);
-    expect(fs.readFileSync(file, 'utf8')).toBe(
-      '---\nname: astryx\n---\nmy own notes\n',
+    fs.writeFileSync(
+      FILE(),
+      `${renderComputerAgentText({command: 'astryx'})}edit\n`,
     );
-    expect(removeComputerAgentText({home}).map(f => f.action)).toEqual([
-      'kept',
-      'removed',
-    ]);
-    expect(fs.existsSync(file)).toBe(true);
+    expect(writeComputerAgentText({home, command: 'astryx'}).rows[0]).toEqual({
+      path: FILE(),
+      action: 'kept',
+      reason: 'edited',
+    });
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'never follows a symlinked file, even one that points at an Astryx file',
-    () => {
-      const elsewhere = path.join(tmp('elsewhere'), 'SKILL.md');
-      const ours = renderComputerAgentText({command: 'astryx'}).replace(
-        'RULES',
-        'OLD',
-      );
-      fs.writeFileSync(elsewhere, ours);
-      const file = path.join(home, SKILLS[1]);
-      fs.mkdirSync(path.dirname(file), {recursive: true});
-      fs.symlinkSync(elsewhere, file);
-      expect(
-        writeComputerAgentText({home, command: 'astryx'}).map(f => f.action),
-      ).toEqual(['written', 'kept']);
-      expect(fs.readFileSync(elsewhere, 'utf8')).toBe(ours);
-      expect(removeComputerAgentText({home}).map(f => f.action)).toEqual([
-        'removed',
-        'kept',
-      ]);
-      expect(fs.lstatSync(file).isSymbolicLink()).toBe(true);
-      expect(fs.readFileSync(elsewhere, 'utf8')).toBe(ours);
-    },
-  );
-
-  it('removes both files and their emptied folders; then reports them absent', () => {
-    writeComputerAgentText({home, command: 'astryx'});
-    expect(removeComputerAgentText({home}).map(f => f.action)).toEqual([
-      'removed',
-      'removed',
-    ]);
-    for (const rel of SKILLS) {
-      expect(fs.existsSync(path.dirname(path.join(home, rel)))).toBe(false);
-    }
-    expect(removeComputerAgentText({home}).map(f => f.action)).toEqual([
-      'absent',
-      'absent',
-    ]);
+  it('keeps a link that points somewhere else', () => {
+    const elsewhere = tmp('elsewhere');
+    fs.mkdirSync(path.dirname(CLAUDE()), {recursive: true});
+    fs.symlinkSync(elsewhere, CLAUDE(), 'dir');
+    const {rows} = writeComputerAgentText({home, command: 'astryx'});
+    expect(rows[1]).toEqual({
+      path: CLAUDE(),
+      action: 'kept',
+      reason: 'not-astryx',
+    });
+    expect(fs.realpathSync(CLAUDE())).toBe(fs.realpathSync(elsewhere));
   });
 
-  it('keeps a skill folder that holds other files', () => {
-    writeComputerAgentText({home, command: 'astryx'});
-    const extra = path.join(home, '.claude', 'skills', 'astryx', 'notes.md');
-    fs.writeFileSync(extra, 'mine');
-    removeComputerAgentText({home});
-    expect(fs.readFileSync(extra, 'utf8')).toBe('mine');
-  });
-
-  it('names exactly the two files in the home folder', () => {
-    expect(computerAgentTextPaths(home)).toEqual(
-      SKILLS.map(rel => path.join(home, rel)),
+  it('replaces an unedited copy an earlier release left at a link target with the link', () => {
+    fs.mkdirSync(CLAUDE(), {recursive: true});
+    fs.writeFileSync(
+      path.join(CLAUDE(), 'SKILL.md'),
+      unedited(
+        `---\nname: astryx\n---\n\n${MARKER_START}\nold\n${MARKER_END}\n`,
+      ),
     );
+    expect(writeComputerAgentText({home, command: 'astryx'}).rows[1]).toEqual({
+      path: CLAUDE(),
+      action: 'linked',
+    });
+    expect(isLinkToFolder(CLAUDE())).toBe(true);
+  });
+
+  it('removes the file and exactly the links it made, then reports the file absent', () => {
+    const {links} = writeComputerAgentText({home, command: 'astryx'});
+    // A link someone else made to the same folder is not Astryx's to remove.
+    const theirs = path.join(home, 'mine', 'astryx');
+    fs.mkdirSync(path.dirname(theirs), {recursive: true});
+    fs.symlinkSync(FOLDER(), theirs, 'dir');
+    expect(removeComputerAgentText({home, links})).toEqual([
+      {path: FILE(), action: 'removed'},
+      {path: CLAUDE(), action: 'removed'},
+    ]);
+    expect(fs.existsSync(CLAUDE())).toBe(false);
+    expect(fs.existsSync(FOLDER())).toBe(false);
+    expect(fs.lstatSync(theirs).isSymbolicLink()).toBe(true);
+    expect(removeComputerAgentText({home, links: []})).toEqual([
+      {path: FILE(), action: 'absent'},
+    ]);
+  });
+
+  it('keeps an edited file on remove, and a recorded link someone repointed', () => {
+    const {links} = writeComputerAgentText({home, command: 'astryx'});
+    fs.unlinkSync(CLAUDE());
+    fs.symlinkSync(tmp('other'), CLAUDE(), 'dir');
+    fs.appendFileSync(FILE(), 'edit\n');
+    expect(removeComputerAgentText({home, links})).toEqual([
+      {path: FILE(), action: 'kept', reason: 'edited'},
+    ]);
+    expect(fs.existsSync(FILE())).toBe(true);
+    expect(fs.lstatSync(CLAUDE()).isSymbolicLink()).toBe(true);
   });
 });
 
@@ -446,9 +433,12 @@ describe.skipIf(process.platform === 'win32')('astryxOnSearchPath', () => {
 });
 
 describe('only `init --user` writes the computer-level text (FR7)', () => {
-  /** @returns {string[]} the skill files present in the temp home */
+  /** @returns {string[]} the skill paths present in the temp home */
   const present = () =>
-    SKILLS.filter(rel => fs.existsSync(path.join(home, rel)));
+    [
+      computerSkillFile(home),
+      path.join(home, '.claude', 'skills', 'astryx'),
+    ].filter(p => fs.existsSync(p));
 
   /** A project that installs this release's Core. */
   function project() {
@@ -472,7 +462,7 @@ describe('only `init --user` writes the computer-level text (FR7)', () => {
     return dir;
   }
 
-  it('no source outside init --user and the background step imports the write or remove functions', () => {
+  it('no source outside init --user (its adapter) and the background step imports the write or remove functions', () => {
     /** @type {string[]} */
     const importers = [];
     /** @param {string} dir */
@@ -506,7 +496,7 @@ describe('only `init --user` writes the computer-level text (FR7)', () => {
     }
     expect(importers.sort()).toEqual(
       [
-        path.join('api', 'init', 'user', 'user.mjs'),
+        path.join('api', 'init', '_adapter.mjs'),
         path.join('foundation', 'agent-docs', 'computer-agent-text.mjs'),
         path.join('foundation', 'release', 'agent-text-worker.mjs'),
       ].sort(),

@@ -104,9 +104,9 @@ export function computerInstallRoot(cliRoot, options = {}) {
 /**
  * Every install root that holds packages installed with the CLI at
  * `cliRoot`. Usually one: its install root. pnpm 11 and later install each
- * global package in a folder of its own, `<pnpm home>/global/v<N>/<id>`, and
- * keep the files in `<pnpm home>/store/v<N>/links`, so for a CLI found there
- * every such global folder counts, provided one of them installs this CLI.
+ * global package in a folder of its own, `<pnpm home>/global/v<N>/<id>`, with
+ * its files in `<pnpm home>/store/v<N>/links` or inside that folder, so every
+ * such global folder counts, provided one of them installs this CLI.
  * @param {string} cliRoot
  * @param {{cacheDir?: string}} [options]
  * @returns {string[]}
@@ -119,22 +119,35 @@ export function computerInstallRoots(cliRoot, options = {}) {
 }
 
 /**
- * pnpm's global folders for a CLI whose files are in pnpm's store, or none.
+ * pnpm's global folders for a CLI installed globally by pnpm 11 or later, or
+ * none. Its files are either in pnpm's store (`<home>/store/v<N>/links/...`,
+ * with the global virtual store) or inside its own global folder
+ * (`<home>/global/v<N>/<id>/node_modules/...`, without it).
  * @param {string} cli the CLI package's real path
  * @returns {string[]}
  */
 function pnpmGlobalFolders(cli) {
   const parts = cli.split(/[\\/]/);
-  const at = parts.lastIndexOf('store');
+  /** @type {string | null} */
+  let globalDir = null;
+  const storeAt = parts.lastIndexOf('store');
   if (
-    at < 1 ||
-    !/^v\d+$/.test(parts[at + 1] ?? '') ||
-    parts[at + 2] !== 'links'
+    storeAt > 0 &&
+    /^v\d+$/.test(parts[storeAt + 1] ?? '') &&
+    parts[storeAt + 2] === 'links'
   ) {
-    return [];
+    const home = parts.slice(0, storeAt).join(path.sep) || path.sep;
+    globalDir = path.join(home, 'global', parts[storeAt + 1]);
+  } else {
+    const at = parts.findIndex(
+      (part, k) =>
+        part === 'global' &&
+        /^v\d+$/.test(parts[k + 1] ?? '') &&
+        parts[k + 3] === 'node_modules',
+    );
+    if (at > 0) globalDir = parts.slice(0, at + 2).join(path.sep) || path.sep;
   }
-  const home = parts.slice(0, at).join(path.sep) || path.sep;
-  const globalDir = path.join(home, 'global', parts[at + 1]);
+  if (globalDir == null) return [];
   /** @type {string[]} */
   let names;
   try {

@@ -9,7 +9,15 @@
  * SYNC: When DropdownMenu.tsx changes, update tests to match new behavior
  */
 
-import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeAll,
+  beforeEach,
+  afterEach,
+} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {render, screen, fireEvent, waitFor, act} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -19,6 +27,7 @@ import {DropdownMenu, type DropdownMenuTriggerProps} from './DropdownMenu';
 import {DropdownMenuItem} from './DropdownMenuItem';
 import {DropdownMenuDivider} from './DropdownMenuDivider';
 import {DropdownMenuGroup} from './DropdownMenuGroup';
+import {warmMenuBottomSheet} from './__tests__/warmMenuBottomSheet';
 import {DropdownMenuSubMenu} from './DropdownMenuSubMenu';
 import {Divider} from '../Divider';
 import {rtlStyles} from '../utils';
@@ -73,6 +82,10 @@ beforeEach(() => {
     return originalMatches.call(this, selector);
   };
 });
+
+// The touch sheet is loaded lazily; resolve it once so sheets below render
+// synchronously.
+beforeAll(warmMenuBottomSheet, 20000);
 
 describe('DropdownMenu', () => {
   it('renders trigger button with label', () => {

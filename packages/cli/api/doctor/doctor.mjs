@@ -31,14 +31,11 @@ import {MIN_NODE_VERSION, isNodeVersionSupported} from '../../foundation/env/nod
 import {AGENT_DOC_PATHS} from '../../foundation/agent-docs/agent-doc-state.mjs';
 import {CLI_ROOT, findProjectCoreDir, findInstalledPackage} from '../../foundation/fs/paths.mjs';
 import {detectPackageManager, explainPackageManager, formatCliCommand, getCliInvocation, guessCliInvocation} from '../../foundation/env/package-manager.mjs';
-import {readDeclaredDependencies} from '../../foundation/integrations/autolink.mjs';
 import {chooseDeclaredCliCommand, declaredCliCommandsOf} from '../../foundation/env/cli-command.mjs';
 import {
   findConfigPath,
   Project,
   providerLedgerOf,
-  computerIntegrationCandidates,
-  availableComputerIntegrations,
 } from '../../foundation/config/project.mjs';
 import {DocsCatalog} from '../../foundation/discovery/docs-discovery.mjs';
 import {buildDocsIndexData} from '../../foundation/discovery/docs-section-key.mjs';
@@ -66,8 +63,7 @@ import {knownLatestRelease} from '../../foundation/release/global-state.mjs';
 import {availableLine, globalBehind, globalUpgradeCommand, projectLag, upgradeLine} from '../../foundation/release/notices.mjs';
 import {isGlobalCopy} from '../../foundation/release/choose.mjs';
 import {astryxCommandsOnSearchPath} from '../../foundation/env/search-path.mjs';
-import {displayHomePath, inspectComputerAgentText} from '../../foundation/agent-docs/computer-agent-text.mjs';
-import {computerAgentTextSettings} from '../../foundation/env/user-settings.mjs';
+import {computerAgentTextState, computerIntegrationsOutside, computerIntegrationsToAdd, displayHomePath} from './_adapter.mjs';
 
 /**
  * @typedef {'pass'|'warn'|'fail'|'info'} DoctorStatus
@@ -368,6 +364,26 @@ export async function checkConfig(ctx) {
 }
 
 /**
+ * Why no integration is implicitly linked, from what actually loaded. A
+ * configured integration is named in astryx.config; the package's own manifest
+ * loads as itself (`__local`). Only the first may be described as named in
+ * astryx.config: a package with no config that loads its own manifest has no
+ * config file to name it.
+ *
+ * @param {Array<{name?: string, __local?: boolean}>} integrations loaded, none
+ *   autolinked and none that failed to load
+ * @returns {string}
+ */
+function describeNoImplicit(integrations) {
+  const own = integrations.filter(integration => integration.__local);
+  const configured = integrations.length - own.length;
+  const ownNames = own.map(integration => integration.name ?? 'this package').join(', ');
+  if (own.length === 0) return 'None — every loaded integration is named in astryx.config.';
+  if (configured === 0) return `None — the only loaded integration is this package's own manifest (${ownNames}).`;
+  return `None — every loaded integration is named in astryx.config or is this package's own manifest (${ownNames}).`;
+}
+
+/**
  * Check 6 — integrations that are loaded without an astryx.config entry.
  *
  * The CLI autolinks an installed dependency that ships an
@@ -411,14 +427,18 @@ export function checkImplicitIntegrations(ctx) {
   const unreadable = describeUnreadableManifests(ctx.autolinkFailures ?? []);
 
   if (implicit.length === 0) {
+    // A record that carries `__loadError` (the package's own manifest, or a
+    // configured one, that failed to load) loaded nothing, so it is not named
+    // as loaded beside the line reporting that it could not be loaded.
+    const loaded = ctx.integrations.filter(integration => !integration.__loadError);
     return {
       id,
       label,
       status: 'info',
       message:
-        (ctx.integrations.length > 0
-          ? 'None — every loaded integration is named in astryx.config.'
-          : unreadable
+        (loaded.length > 0
+          ? describeNoImplicit(loaded)
+          : ctx.integrations.length > 0 || unreadable
             ? 'None loaded.'
             : 'None — no installed dependency ships an astryx.integration.* manifest.') +
         unreadable,
@@ -1382,7 +1402,7 @@ export function checkAnsweringRelease(ctx) {
       core
         ? `CLI ${cli} with Core ${core} answered, outside a project.`
         : `CLI ${cli} answered, outside a project. It installs Core ${cli} into the per-user cache the first time a command needs it.`
-    } How each folder is answered: \`${formatCliCommand('astryx docs cli/global', ctx.cwd)}\`.`,
+    } How each folder is answered: \`${formatCliCommand('astryx docs global', ctx.cwd)}\`.`,
   };
 }
 
@@ -1486,7 +1506,8 @@ export function checkCliOnPath(ctx) {
  * @returns {DoctorCheck}
  */
 export function checkComputerAgentText(ctx) {
-  const settings = ctx.agentTextSettings ?? computerAgentTextSettings();
+  const state = ctx.agentTextSettings && ctx.agentText ? null : computerAgentTextState();
+  const settings = ctx.agentTextSettings ?? /** @type {NonNullable<typeof state>} */ (state).settings;
   const base = {
     id: 'computer-agent-text',
     label: 'Computer-level agent text',
@@ -1499,37 +1520,39 @@ export function checkComputerAgentText(ctx) {
       fix: `To turn it back on, run \`${formatCliCommand('astryx init --user', ctx.cwd)}\`.`,
     };
   }
-  const files = ctx.agentText ?? inspectComputerAgentText({agents: settings.agents});
+  const entries = ctx.agentText ?? /** @type {NonNullable<typeof state>} */ (state).entries;
   const fix = `Run \`${formatCliCommand('astryx init --user', ctx.cwd)}\`.`;
-  const ours = files.filter(f => f.state === 'current' || f.state === 'differs');
-  const listOf = (/** @type {string} */ state) => files.filter(f => f.state === state).map(f => displayHomePath(f.path));
-  const kept = listOf('foreign');
-  const edited = listOf('edited');
-  const keptNote =
-    (kept.length > 0 ? ` Not written by Astryx, so left as they are: ${kept.join(', ')}.` : '') +
-    (edited.length > 0 ? ` Edited since Astryx wrote them, so left as they are (delete one to get the current text): ${edited.join(', ')}.` : '');
-  const agentsNote = settings.agents ? ` Chosen agents: ${settings.agents.join(', ')}.` : '';
-  if (ours.length === 0) {
+  const [file, ...links] = entries;
+  const home = (/** @type {{path: string}} */ e) => displayHomePath(e.path);
+  const linked = links.filter(l => l.state === 'linked').map(home);
+  const copied = links.filter(l => l.state === 'current').map(home);
+  const skipped = links.filter(l => l.state === 'foreign' || l.state === 'edited').map(home);
+  const dangling = links.filter(l => l.state === 'dangling').map(home);
+  const missing = links.filter(l => l.state === 'absent' || l.state === 'differs').map(home);
+  const linkNote =
+    (linked.length > 0 ? ` Linked into: ${linked.join(', ')}.` : '') +
+    (copied.length > 0 ? ` Copied into: ${copied.join(', ')}.` : '') +
+    (skipped.length > 0 ? ` Not linked, because something Astryx did not create is there: ${skipped.join(', ')}.` : '') +
+    (dangling.length > 0 ? ` Linked, but the skill folder the link points to is not there, so agents reading it see nothing (as in a container that mounts only that folder): ${dangling.join(', ')}.` : '') +
+    (missing.length > 0 ? ` Not linked yet: ${missing.join(', ')}.` : '');
+  if (file.state === 'foreign' || file.state === 'edited') {
     return {
       ...base,
-      message: `No computer-level agent text: agents outside a project with Astryx agent docs are not told how to use Astryx.${agentsNote}${keptNote}`,
-      ...(edited.length === files.length ? {} : {fix}),
+      message: `${home(file)} ${file.state === 'edited' ? 'was edited since Astryx wrote it' : 'was not written by Astryx'}, so it is left as it is (delete it to get the current text).${linkNote}`,
     };
   }
-  if (files.every(f => f.state === 'current')) {
+  if (file.state === 'absent') {
     return {
       ...base,
-      message: `The computer-level agent text matches this release: ${files.map(f => displayHomePath(f.path)).join(', ')}.${agentsNote}`,
+      message: `No computer-level agent text: agents outside a project with Astryx agent docs do not know Astryx is here.${linkNote}`,
+      fix,
     };
   }
-  const stale = files.filter(f => f.state === 'differs' || f.state === 'absent').map(f => displayHomePath(f.path));
+  const current = file.state === 'current';
   return {
     ...base,
-    message:
-      stale.length > 0
-        ? `The computer-level agent text differs from this release's: ${stale.join(', ')}.${agentsNote}${keptNote}`
-        : `The computer-level agent text matches this release where Astryx keeps it.${agentsNote}${keptNote}`,
-    ...(stale.length > 0 ? {fix} : {}),
+    message: `${current ? 'The computer-level agent text matches this release' : "The computer-level agent text differs from this release's"}: ${home(file)}.${linkNote}`,
+    ...(!current || missing.length > 0 || dangling.length > 0 ? {fix} : {}),
   };
 }
 
@@ -1580,11 +1603,11 @@ export function checkComputerIntegrations(ctx) {
  * Inside a project, the integrations installed for the computer that the
  * project does not install: available, never used (spec AST-081 FR12).
  * Always info.
- * @param {{cwd: string, installed: Set<string>, candidates?: import('../../foundation/integrations/computer-integrations.mjs').ComputerIntegrationCandidate[]}} input
+ * @param {{cwd: string, installed: Set<string>, candidates: import('../../foundation/integrations/computer-integrations.mjs').ComputerIntegrationCandidate[]}} input
  * @returns {DoctorCheck}
  */
 export function checkComputerIntegrationsAvailable({cwd, installed, candidates}) {
-  const available = (candidates ?? computerIntegrationCandidates(cwd)).filter(c => !installed.has(c.name));
+  const available = candidates.filter(c => !installed.has(c.name));
   const base = {id: 'computer-integrations', label: 'Integrations installed for this computer', status: /** @type {const} */ ('info')};
   if (available.length === 0) {
     return {...base, message: 'No integration installed for this computer is missing from this project.'};
@@ -1595,22 +1618,6 @@ export function checkComputerIntegrationsAvailable({cwd, installed, candidates})
     message: `Installed for this computer but not in this project, so not used here: ${available.map(c => c.name).join(', ')}.`,
     fix: `To use one in this project, run ${available.map(c => `\`${add(c.name)}\``).join(' or ')}.`,
   };
-}
-
-/**
- * The package names the folder's package.json declares, nearest first.
- * @param {string} cwd
- * @returns {string[]}
- */
-function declaredPackageNames(cwd) {
-  for (let dir = path.resolve(cwd); ; ) {
-    if (fs.existsSync(path.join(dir, 'package.json'))) {
-      return readDeclaredDependencies(dir).map(d => d.name);
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) return [];
-    dir = parent;
-  }
 }
 
 /**
@@ -1654,22 +1661,10 @@ async function runComputerChecks(cwd) {
     nodeVersion: process.versions.node,
     answeredBy: answeredBy(cwd),
     latest: knownLatestRelease(),
-    agentTextSettings: computerAgentTextSettings(),
     cwd,
   };
   ctx.globalBehind = isGlobalCopy(CLI_ROOT) ? globalBehind({self: {version: ctx.answeredBy.cli, root: CLI_ROOT}}) : null;
-  ctx.computerIntegrations = computerIntegrationCandidates(cwd);
-  if (ctx.computerIntegrations.length > 0) {
-    try {
-      const project = await Project.load(cwd);
-      /** @type {Array<{name: string, __computer?: boolean, __loadError?: string}>} */
-      const loaded = project.loadedIntegrations;
-      ctx.loadedComputerIntegrations = loaded.filter(i => i.__computer && !i.__loadError).map(i => i.name);
-      ctx.folderIntegrations = loaded.filter(i => !i.__computer).map(i => i.name);
-    } catch {
-      ctx.loadedComputerIntegrations = [];
-    }
-  }
+  Object.assign(ctx, await computerIntegrationsOutside(cwd));
   const checks = COMPUTER_CHECKS.map(fn => fn(ctx));
   const summary = {pass: 0, warn: 0, fail: 0, info: 0};
   for (const c of checks) summary[c.status] += 1;
@@ -1877,17 +1872,9 @@ export async function runChecks(options = {}) {
   );
     checks.push(checkCliOnPath({nodeVersion: ctx.nodeVersion, answeredBy: answered, latest: null}));
   {
-    const installed = new Set([
-      ...(project?.loadedIntegrations ?? []).map((/** @type {{name: string}} */ i) => i.name),
-      ...declaredPackageNames(cwd),
-    ]);
-    checks.push(
-      checkComputerIntegrationsAvailable({
-        cwd,
-        installed,
-        candidates: await availableComputerIntegrations(cwd, installed),
-      }),
-    );
+    const loadedNames = (project?.loadedIntegrations ?? []).map((/** @type {{name: string}} */ i) => i.name);
+    const candidates = await computerIntegrationsToAdd(cwd, loadedNames);
+    checks.push(checkComputerIntegrationsAvailable({cwd, installed: new Set(loadedNames), candidates}));
   }
   checks.push(await checkAuthoringDocs(ctx));
   checks.push(await checkCliDocs(ctx));

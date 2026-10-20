@@ -121,7 +121,7 @@ export const doc = {
   notes: [
     {
       type: 'prose',
-      text: "In global mode: inside a project, upgrade always runs the codemods of the release equal to the project's installed Core, whichever copy of the CLI you start. Outside a project it lists the codemods this release ships, finds no copied compositions, and a migration writes nothing and fails with `ERR_VERSION_DETECT`. See {@link namespace:global} and {@link generic:who-answers}.",
+      text: "In global mode: in a project, upgrade always runs the codemods of the version that matches the project's installed Core, whichever astryx command you start. Outside a project, `--list` lists this version's codemods, `--registry` finds no copied compositions, and a migration writes nothing and stops with `ERR_VERSION_DETECT`. See {@link namespace:global} and {@link generic:who-answers}.",
     },
     {type: 'heading', level: 3, text: 'Protected files'},
     {

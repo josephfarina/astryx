@@ -23,8 +23,8 @@ export const doc = {
     'guidance instead (the theme feature also writes the annotated theme template). ' +
     'With `removeAgents` it removes the managed agent-docs block instead of installing. ' +
     'Outside a project it writes the same files but prints no getting-started steps and no step that adds a theme to an app, since those set up a project the folder does not have. ' +
-        "With `user` it sets up the computer instead of the folder: it writes the computer-level agent text, one skill file at `~/.agents/skills/astryx/SKILL.md` and `~/.claude/skills/astryx/SKILL.md` (plus the skill folder of Continue, Kiro, or Windsurf when that tool is installed) that tells agents anywhere on the computer how to use Astryx and to follow a project's own agent docs inside that project, only the chosen agents' files with `agent`; with `user` and `removeAgents` it removes those files and records that the text is turned off. " +
-    'The CLI installed for the computer keeps that text current in the background and follows the recorded choice; package install scripts, project setup, and upgrade never write it.' +
+        "With `user` it sets up the computer instead of the folder: it writes the computer-level agent text, one skill file at `~/.agents/skills/astryx/SKILL.md`, linked into the skill folders of agents that read only their own (`~/.claude/skills` always, and Continue, Kiro, or Windsurf when that tool's folder exists), telling agents anywhere on the computer that Astryx is there and when to use it; with `user` and `removeAgents` it removes the file and the links it made and records that the text is turned off. " +
+    'The CLI installed for the computer refreshes the file in the background after each upgrade; package install scripts, project setup, and upgrade never write it.' +
     " In global mode: with `cwd` outside a project, it writes the agent docs and prints no getting-started steps; `user` writes only the agent guide for the computer, in the home folder, and touches nothing in `cwd`. See {@link namespace:global} and {@link generic:computer-agent-guide}.",
   importPath: '@astryxdesign/cli/api',
   signature:
@@ -52,17 +52,17 @@ export const doc = {
       name: 'options.user',
       type: 'boolean',
       description:
-        "Write or refresh the computer-level agent text (`~/.agents/skills/astryx/SKILL.md` and `~/.claude/skills/astryx/SKILL.md`, plus the skill folder of Continue, Kiro, or Windsurf when that tool is installed, in the current user's home folder) instead of setting up `ctx.cwd`. " +
+        "Write or refresh the computer-level agent text instead of setting up `ctx.cwd`: one skill file at `~/.agents/skills/astryx/SKILL.md` in the current user's home folder, linked (a directory symlink, or a junction on Windows) into `~/.claude/skills/astryx` and into the skills folder of Continue, Kiro, or Windsurf when that tool's folder exists. " +
         'The text uses the `astryx` command, or the command of the host that started the run; an integration\'s `cliCommand` never applies. ' +
-                'Records the choice (every agent, the `agent` list, or, with `removeAgents`, turned off) in `astryx/settings.json` in the per-user configuration folder. ' +
-        'A file without the Astryx markers, one edited since Astryx wrote it, or a symlink, is kept as it is. When no `astryx` command on the computer runs the Astryx CLI, the text is still written and the receipt carries a warning to install the CLI for the computer (`npm i -g @astryxdesign/cli`). ' +
-        'Cannot be combined with `features`, `all`, or `agentDocsPath`, nor `agent` with `removeAgents`.',
+        'Records the links it made, or with `removeAgents` that the text is turned off, in `astryx/settings.json` in the per-user configuration folder. ' +
+        'A file without the Astryx markers, one edited since Astryx wrote it, or a symlink, is kept as it is, and so is anything at a link target that Astryx did not create. When no `astryx` command on the computer runs the Astryx CLI, the text is still written and the receipt carries a warning to install the CLI for the computer (`npm i -g @astryxdesign/cli`). ' +
+        'Cannot be combined with `features`, `all`, `agent`, or `agentDocsPath`.',
     },
     {
       name: 'options.agent',
       type: 'string',
       description:
-        'Agent preset: claude, cursor, codex, hermes, muse, all. Used only when the agents feature runs. With `user`, a comma-separated list of the agents the computer-level text is for: claude, codex, gemini, copilot, cursor, opencode, crush, qwen, cline, amp, goose, roo, zed, continue, kiro, windsurf.',
+        'Agent preset: claude, cursor, codex, hermes, muse, all. Used only when the agents feature runs. Refused with `user`.',
     },
     {
       name: 'options.agentDocsPath',
@@ -96,7 +96,7 @@ export const doc = {
     {
       type: 'init.user',
       description:
-        'The computer-level agent text receipt, returned when `user` is set: `data.files`, one `{path, action, reason?}` per file acted on (`~/.agents/skills/astryx/SKILL.md`, then `~/.claude/skills/astryx/SKILL.md`; action `written` | `unchanged` | `removed` | `absent` | `kept`; `reason` on `kept`: `edited` | `not-astryx`), `data.agents` (the chosen agent names, or null for every agent), `data.command` (the command the text names), and `data.warnings`.',
+        'The computer-level agent text receipt, returned when `user` is set: `data.files`, one `{path, action, reason?}` per path acted on (`~/.agents/skills/astryx/SKILL.md`, then each link to its folder, such as `~/.claude/skills/astryx`; action `written` | `linked` | `unchanged` | `removed` | `absent` | `kept`; `reason` on `kept`: `edited` | `not-astryx`), `data.command` (the command the text names), and `data.warnings`.',
     },
   ],
   throws: [

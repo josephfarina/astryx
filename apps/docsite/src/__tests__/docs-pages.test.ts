@@ -298,7 +298,7 @@ describe('CLI commands on docsite pages', () => {
     ]);
   });
 
-  it('keeps the command the CLI Integrations page has always shown', () => {
+  it('shows the CLI Integrations page a command that runs before any install', () => {
     const page = docTopics.find(topic => topic.topic === 'cli-integrations');
     const section = page?.sections.find(
       each => each.title === 'Verify the packed import',
@@ -306,7 +306,7 @@ describe('CLI commands on docsite pages', () => {
     expect(section?.content).toContainEqual(
       expect.objectContaining({
         type: 'code',
-        code: 'npx astryx integration verify',
+        code: 'npx @astryxdesign/cli integration verify',
       }),
     );
   });

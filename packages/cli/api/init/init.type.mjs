@@ -38,22 +38,23 @@
  * `removed`: deleted (with `--remove-agents`). `absent`: nothing to remove.
  * `kept`: a file left as it is, because a person edited it or Astryx did not
  * write it (see `reason`).
- * @typedef {'written' | 'unchanged' | 'removed' | 'absent' | 'kept'} InitUserAction
+ * @typedef {'written' | 'linked' | 'unchanged' | 'removed' | 'absent' | 'kept'} InitUserAction
  */
 
 /**
  * @typedef {object} InitUserFile
- * @property {string} path Absolute path of the file in the home folder.
+ * @property {string} path Absolute path in the home folder: the skill file,
+ *   or a link to its folder.
  * @property {InitUserAction} action
  * @property {'edited' | 'not-astryx'} [reason] Only on `kept`: `edited`, the
  *   text no longer matches the hash Astryx recorded in it; `not-astryx`, it
- *   has no Astryx markers or is a symlink.
+ *   has no Astryx markers or is a symlink, or a link target holds something
+ *   Astryx did not create.
  */
 
 /**
  * @typedef {object} InitUserData
- * @property {InitUserFile[]} files One row per file acted on: `~/.agents/skills/astryx/SKILL.md`, then `~/.claude/skills/astryx/SKILL.md`, then any Continue, Kiro, or Windsurf copy. With `agents`, only the files those agents read, plus any unedited Astryx file no chosen agent reads, `removed`.
- * @property {string[] | null} agents The agent names chosen with `--agent`, or `null` for every agent. Recorded in the settings file, so the global copy keeps the same files.
+ * @property {InitUserFile[]} files One row per path acted on: `~/.agents/skills/astryx/SKILL.md` first, then each link to its folder: `~/.claude/skills/astryx` always, and another agent's skills folder when that agent's folder exists (`linked`, or `unchanged` when the link is already there). Removal removes the file and the links Astryx made.
  * @property {string} command The command the text tells agents to run: `astryx`, or the host's command when a host started the run.
  * @property {string[]} warnings Non-fatal notes, such as no `astryx` on the computer that runs the Astryx CLI.
  */

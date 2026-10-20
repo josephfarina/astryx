@@ -81,7 +81,7 @@ async function main() {
     contract.shouldNudge({
       scriptPath: HERE,
       npmCommand: process.env.npm_command,
-      isSetUp: contract.isAstryxInitialized(root),
+      isSetUp: contract.isAstryxPromptInReach(root),
     })
   ) {
     const invocation = await cliInvocation(root);

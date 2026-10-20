@@ -24,7 +24,10 @@ import {
   COMPUTER_COMMAND,
   writeComputerAgentText,
 } from '../agent-docs/computer-agent-text.mjs';
-import {computerAgentTextSettings} from '../env/user-settings.mjs';
+import {
+  computerAgentTextSettings,
+  recordComputerAgentTextSettings,
+} from '../env/user-settings.mjs';
 import {recordAgentTextWritten} from './global-state.mjs';
 import {readJson} from './project.mjs';
 
@@ -33,9 +36,10 @@ if (stateDir) {
   try {
     const settings = computerAgentTextSettings();
     if (settings.install) {
-      writeComputerAgentText({
-        command: COMPUTER_COMMAND,
-        agents: settings.agents,
+      const {links} = writeComputerAgentText({command: COMPUTER_COMMAND});
+      recordComputerAgentTextSettings({
+        install: true,
+        links: [...new Set([...settings.links, ...links])],
       });
       const pkg = readJson(
         fileURLToPath(new URL('../../package.json', import.meta.url)),

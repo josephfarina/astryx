@@ -2,15 +2,28 @@
 
 /** @file Environment adapter for app-theme doctor evidence. */
 
+import {readDeclaredDependencies} from '../../foundation/integrations/autolink.mjs';
+import {
+  displayHomePath,
+  inspectComputerAgentText,
+} from '../../foundation/agent-docs/computer-agent-text.mjs';
+import {computerAgentTextSettings} from '../../foundation/env/user-settings.mjs';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import {Project} from '../../foundation/config/project.mjs';
+import {
+  Project,
+  availableComputerIntegrations,
+  computerIntegrationCandidates,
+} from '../../foundation/config/project.mjs';
 import {
   discoverUnmigratedThemeCopies,
   themeImportPackage,
 } from '../../foundation/discovery/theme-discovery.mjs';
 import {resolveThemeImports} from '../../foundation/discovery/theme-imports.mjs';
-import {findProjectCoreDir, findInstalledPackage} from '../../foundation/fs/paths.mjs';
+import {
+  findProjectCoreDir,
+  findInstalledPackage,
+} from '../../foundation/fs/paths.mjs';
 export {
   isLocalThemeOwner,
   planThemeAppWrite,
@@ -188,3 +201,78 @@ export function readPackageJson(file) {
     return null;
   }
 }
+
+/**
+ * The integrations installed for the computer, and, outside a project, which
+ * of them the folder loads (spec AST-081 FR12): those it uses, and the names
+ * of the integrations the folder loads itself, whose copies win.
+ * @param {string} cwd
+ * @returns {Promise<{computerIntegrations: import('../../foundation/integrations/computer-integrations.mjs').ComputerIntegrationCandidate[], loadedComputerIntegrations: string[], folderIntegrations: string[]}>}
+ */
+export async function computerIntegrationsOutside(cwd) {
+  const computerIntegrations = computerIntegrationCandidates(cwd);
+  if (computerIntegrations.length === 0) {
+    return {
+      computerIntegrations,
+      loadedComputerIntegrations: [],
+      folderIntegrations: [],
+    };
+  }
+  try {
+    const project = await Project.load(cwd);
+    /** @type {Array<{name: string, __computer?: boolean, __loadError?: string}>} */
+    const loaded = project.loadedIntegrations;
+    return {
+      computerIntegrations,
+      loadedComputerIntegrations: loaded
+        .filter(i => i.__computer && !i.__loadError)
+        .map(i => i.name),
+      folderIntegrations: loaded.filter(i => !i.__computer).map(i => i.name),
+    };
+  } catch {
+    return {
+      computerIntegrations,
+      loadedComputerIntegrations: [],
+      folderIntegrations: [],
+    };
+  }
+}
+
+/**
+ * Inside a project: the integrations installed for the computer it could add
+ * (spec AST-081 FR12), leaving out every package it loads or declares.
+ * @param {string} cwd
+ * @param {string[]} loadedNames the integrations the project loads
+ * @returns {Promise<import('../../foundation/integrations/computer-integrations.mjs').ComputerIntegrationCandidate[]>}
+ */
+export async function computerIntegrationsToAdd(cwd, loadedNames) {
+  const installed = new Set([...loadedNames, ...declaredPackageNames(cwd)]);
+  return availableComputerIntegrations(cwd, installed);
+}
+
+/**
+ * The package names the folder's package.json declares, nearest first.
+ * @param {string} cwd
+ * @returns {string[]}
+ */
+function declaredPackageNames(cwd) {
+  for (let dir = path.resolve(cwd); ;) {
+    if (fs.existsSync(path.join(dir, 'package.json'))) {
+      return readDeclaredDependencies(dir).map(d => d.name);
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return [];
+    dir = parent;
+  }
+}
+
+/**
+ * The computer-level agent text's setting and its state on disk.
+ * @returns {{settings: import('../../foundation/env/user-settings.mjs').ComputerAgentTextSettings, entries: Array<{path: string, state: import('../../foundation/agent-docs/computer-agent-text.mjs').ComputerAgentTextState, link?: true}>}}
+ */
+export function computerAgentTextState() {
+  const settings = computerAgentTextSettings();
+  return {settings, entries: inspectComputerAgentText({links: settings.links})};
+}
+
+export {displayHomePath};

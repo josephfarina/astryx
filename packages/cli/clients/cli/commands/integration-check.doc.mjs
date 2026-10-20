@@ -87,7 +87,7 @@ export const doc = {
   notes: [
     {
       type: 'prose',
-      text: "In global mode: outside an integration package, integration check writes nothing, `validate` reports one `no_package` issue, and it exits 1. Inside a project, the release equal to the project's Core runs it, whichever copy of the CLI you start. See {@link namespace:global} and {@link generic:global-integrations}.",
+      text: "In global mode: outside a package, it writes nothing, its `validate` check reports one `no_package` issue, and it exits 1. In a project, the project's version of Astryx runs it, whichever astryx command you start. See {@link namespace:global} and {@link generic:global-integrations}.",
     },
   ],
 };

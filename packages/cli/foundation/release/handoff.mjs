@@ -75,22 +75,32 @@ export function handedToProjectLine(projectVersion, startedIn) {
  * @param {string} version
  */
 export function progressLine(event, version) {
-  console.error(
-    event === 'install'
-      ? `astryx: installing CLI release ${version} into the per-user cache (once)...`
-      : `astryx: waiting for another run to finish installing CLI release ${version}...`,
-  );
+  console.error(progressText(event, version));
 }
 
 /**
- * What to do about a release that is not available.
- * @param {string} reason
+ * The text of {@link progressLine}.
+ * @param {'install' | 'wait'} event
+ * @param {string} version
  * @returns {string}
  */
-function nextStep(reason) {
-  return /cannot be written/.test(reason)
-    ? "Make that folder writable, or install the project's dependencies."
-    : "Install the project's dependencies, or run again when the package registry can be reached.";
+export function progressText(event, version) {
+  return event === 'install'
+    ? `astryx: installing CLI release ${version} into the per-user cache (once)...`
+    : `astryx: waiting for another run to finish installing CLI release ${version}...`;
+}
+
+/**
+ * The warning a run prints, in text mode, when the release that matches the
+ * project's Core cannot be obtained and the copy that answered before global
+ * mode answers instead (spec AST-081 FR2).
+ * @param {string} wanted the matched release, or the range it was read from
+ * @param {string} reason why it cannot be obtained
+ * @param {string} answering the version that answers instead
+ * @returns {string}
+ */
+export function fallbackLine(wanted, reason, answering) {
+  return `astryx: could not get Astryx ${wanted} to match this project's Core (${reason}); answering with CLI ${answering} instead`;
 }
 
 /**
@@ -163,11 +173,9 @@ export async function startRun({cliRoot, argv}) {
     };
   }
 
-  if (choice.unavailable) {
+  if (choice.unavailable && choice.copy === 'project') {
     failUnavailable(
-      choice.copy === 'project'
-        ? `This project's CLI ${choice.version} could not be started: ${choice.unavailable}. Reinstall the project's dependencies.`
-        : `This project needs CLI release ${choice.version}, which is not available: ${choice.unavailable}. ${nextStep(choice.unavailable)}`,
+      `This project's CLI ${choice.version} could not be started: ${choice.unavailable}. Reinstall the project's dependencies.`,
       json,
     );
   }
@@ -189,6 +197,54 @@ export async function startRun({cliRoot, argv}) {
       // A notice never fails a run.
     }
   };
+  /**
+   * The matched release cannot be obtained: the copy that answered before
+   * global mode answers instead, announced (FR2).
+   * @param {string} reason
+   * @returns {Promise<void>}
+   */
+  const fallBack = async reason => {
+    const target = choice.fallback;
+    if (target?.bin) {
+      if (!json && !namesWhoAnswered(packageRootOf(target.bin))) {
+        console.error(fallbackLine(choice.version, reason, target.version));
+      }
+      await handOff(
+        target.bin,
+        argv,
+        {
+          ...choice,
+          copy: 'fallback',
+          answer: 'project-cli',
+          version: target.version,
+        },
+        json,
+        notify,
+      );
+      return;
+    }
+    recordRunChoice({
+      ...choice,
+      copy: 'fallback',
+      answer: 'self',
+      version: self.version,
+      bin: null,
+      coreVersion: null,
+      unavailable: null,
+    });
+    if (!json) {
+      console.error(fallbackLine(choice.version, reason, self.version));
+    }
+    process.once('exit', code => {
+      if (code === 0) notify();
+    });
+  };
+
+  if (choice.unavailable) {
+    await fallBack(choice.unavailable);
+    return;
+  }
+
   if (choice.answer === 'self') {
     recordRunChoice(choice);
     if (!json && choice.copy !== 'project')
@@ -206,10 +262,8 @@ export async function startRun({cliRoot, argv}) {
       onProgress: json ? undefined : progressLine,
     });
     if (!('bin' in release)) {
-      failUnavailable(
-        `This project needs CLI release ${choice.version}, which is not available: ${release.reason}. ${nextStep(release.reason)}`,
-        json,
-      );
+      await fallBack(release.reason);
+      return;
     }
     bin = release.bin;
   }

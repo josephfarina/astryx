@@ -125,7 +125,7 @@ export function carriedCore(options = {}) {
  * `meta.answeredBy` for this run: the answering CLI's version, the Core the
  * run pairs with (`null` when there is none), and which copy answered.
  * @param {string} [cwd]
- * @returns {{cli: string, core: string | null, copy: 'project' | 'matched' | 'carried'}}
+ * @returns {{cli: string, core: string | null, copy: 'project' | 'matched' | 'carried' | 'fallback'}}
  */
 export function answeredBy(cwd = process.cwd()) {
   const choice = runChoice(cwd);

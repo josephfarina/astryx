@@ -59,7 +59,7 @@ npx @astryxdesign/cli init --features agents --agent all       # every agent fil
         },
         {
           type: 'prose',
-          text: "For agents that work outside any one project, the CLI installed for your computer keeps the same guide in the skill folders agent tools read, such as `~/.agents/skills/astryx/` and `~/.claude/skills/astryx/`; `astryx init --user` writes it now or limits it to some agents. Inside a project, agents follow that project's own agent docs. See {@link generic:computer-agent-guide}.",
+          text: "For agents that work outside any one project, your global install keeps one short Astryx skill, `~/.agents/skills/astryx/SKILL.md`, linked into the skill folders agent tools read, such as `~/.claude/skills/astryx`. It tells agents Astryx is there and when to use it; `astryx init --user` writes it now or, with `--remove-agents`, turns it off. Inside a project, agents follow that project's own agent docs. See {@link generic:computer-agent-guide}.",
         },
       ],
     },
@@ -252,7 +252,7 @@ astryx docs principles --dense`,
       content: [
         {
           type: 'prose',
-          text: "In global mode: the CLI installed for your computer keeps an agent guide where agent tools look in your home folder, so agents outside any project know Astryx; inside a project, its own agent docs win. See {@link namespace:global} and {@link generic:computer-agent-guide}.",
+          text: "In global mode: your global install keeps one Astryx skill in your home folder, linked into the folders agent tools read, so agents outside any project know Astryx is there; inside a project, its own agent docs come first. See {@link namespace:global} and {@link generic:computer-agent-guide}.",
         },
       ],
     },

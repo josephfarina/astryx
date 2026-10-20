@@ -23,7 +23,10 @@ import {
   cleanupFixtures,
   tempDir,
 } from '../../test-utils/release-fixtures.mjs';
-import {recordComputerAgentTextSettings} from '../env/user-settings.mjs';
+import {
+  computerAgentTextSettings,
+  recordComputerAgentTextSettings,
+} from '../env/user-settings.mjs';
 import {userConfigDir} from '../env/user-dirs.mjs';
 import {renderComputerAgentText} from '../agent-docs/computer-agent-text.mjs';
 import {isCi, updateNoticesOff} from './update-notice-env.mjs';
@@ -176,7 +179,7 @@ describe('maybeKeepAgentText', () => {
     const start = () => {
       throw new Error('started');
     };
-    recordComputerAgentTextSettings({install: false, agents: null}, configDir);
+    recordComputerAgentTextSettings({install: false, links: []}, configDir);
     expect(maybeKeepAgentText({...setup(stateDir), configDir, start})).toBe(
       false,
     );
@@ -208,7 +211,7 @@ describe('maybeKeepAgentText', () => {
 });
 
 describe('agent-text-worker.mjs', () => {
-  it('writes the chosen files with this release and records it, keeping an edited file', () => {
+  it('writes the file with this release, links it, records both, and keeps an edited file', () => {
     const home = tempDir('home');
     const stateDir = path.join(home, '.config', 'astryx');
     const env = {
@@ -219,10 +222,6 @@ describe('agent-text-worker.mjs', () => {
       APPDATA: path.join(home, 'AppData', 'Roaming'),
     };
     const configDir = userConfigDir({home, env});
-    recordComputerAgentTextSettings(
-      {install: true, agents: ['claude']},
-      configDir,
-    );
     const worker = fileURLToPath(
       new URL('./agent-text-worker.mjs', import.meta.url),
     );
@@ -231,18 +230,46 @@ describe('agent-text-worker.mjs', () => {
     const first = run();
     expect(first.status).toBe(0);
     expect(first.stdout + first.stderr).toBe('');
-    const claude = path.join(home, '.claude', 'skills', 'astryx', 'SKILL.md');
-    expect(fs.readFileSync(claude, 'utf8')).toBe(
+    const file = path.join(home, '.agents', 'skills', 'astryx', 'SKILL.md');
+    const claude = path.join(home, '.claude', 'skills', 'astryx');
+    expect(fs.readFileSync(file, 'utf8')).toBe(
       renderComputerAgentText({command: 'astryx'}),
     );
-    expect(
-      fs.existsSync(path.join(home, '.agents', 'skills', 'astryx', 'SKILL.md')),
-    ).toBe(false);
+    expect(fs.lstatSync(claude).isSymbolicLink()).toBe(true);
+    expect(computerAgentTextSettings(configDir)).toEqual({
+      install: true,
+      links: [claude],
+    });
     expect(readGlobalState(stateDir).agentText).toEqual({
       writtenBy: CLI_VERSION,
     });
-    fs.appendFileSync(claude, 'mine\n');
+    fs.appendFileSync(file, 'mine\n');
     expect(run().status).toBe(0);
-    expect(fs.readFileSync(claude, 'utf8')).toMatch(/mine\n$/u);
+    expect(fs.readFileSync(file, 'utf8')).toMatch(/mine\n$/u);
+  });
+
+  it('writes nothing when the text is turned off', () => {
+    const home = tempDir('home');
+    const env = {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      XDG_CONFIG_HOME: path.join(home, '.config'),
+    };
+    recordComputerAgentTextSettings(
+      {install: false, links: []},
+      userConfigDir({home, env}),
+    );
+    const worker = fileURLToPath(
+      new URL('./agent-text-worker.mjs', import.meta.url),
+    );
+    expect(
+      spawnSync(
+        process.execPath,
+        [worker, path.join(home, '.config', 'astryx')],
+        {env},
+      ).status,
+    ).toBe(0);
+    expect(fs.existsSync(path.join(home, '.agents'))).toBe(false);
   });
 });

@@ -388,53 +388,68 @@ describe('doctor: the computer-level agent text', () => {
       cwd: os.tmpdir(),
     });
   const A = '/home/me/.agents/skills/astryx/SKILL.md';
-  const C = '/home/me/.claude/skills/astryx/SKILL.md';
+  const C = '/home/me/.claude/skills/astryx';
 
-  it('present and current: no fix', () => {
+  it('present and current, linked: no fix', () => {
     const check = at([
       {path: A, state: 'current'},
-      {path: C, state: 'current'},
+      {path: C, state: 'linked', link: true},
     ]);
     expect(check).toMatchObject({id: 'computer-agent-text', status: 'info'});
     expect(check.message).toContain('matches this release');
+    expect(check.message).toContain(`Linked into: ${C}`);
     expect(check.fix).toBeUndefined();
   });
 
-  it('present but different, or only one file: fix with init --user', () => {
-    for (const states of [
-      ['differs', 'current'],
+  it('a different file, or a link not made yet: fix with init --user', () => {
+    for (const [file, link] of [
+      ['differs', 'linked'],
       ['current', 'absent'],
-      ['differs', 'foreign'],
     ]) {
       const check = at([
-        {path: A, state: states[0]},
-        {path: C, state: states[1]},
+        {path: A, state: file},
+        {path: C, state: link, link: true},
       ]);
       expect(check.status).toBe('info');
-      expect(check.message).toContain("differs from this release's");
       expect(check.fix).toMatch(/init --user`\.$/);
     }
   });
 
-  it('absent, or only files Astryx did not write: fix with init --user', () => {
-    for (const states of [
-      ['absent', 'absent'],
-      ['foreign', 'absent'],
-    ]) {
-      const check = at([
-        {path: A, state: states[0]},
-        {path: C, state: states[1]},
-      ]);
-      expect(check.status).toBe('info');
-      expect(check.message).toContain('No computer-level agent text');
-      expect(check.fix).toMatch(/init --user`\.$/);
-    }
+  it('names a link target it skipped because Astryx did not create what is there', () => {
+    const check = at([
+      {path: A, state: 'current'},
+      {path: C, state: 'foreign', link: true},
+    ]);
+    expect(check.message).toContain(
+      `Not linked, because something Astryx did not create is there: ${C}`,
+    );
+  });
+
+  it('flags a link whose skill folder is missing, with the fix', () => {
+    const check = at([
+      {path: A, state: 'current'},
+      {path: C, state: 'dangling', link: true},
+    ]);
+    expect(check.message).toContain(
+      `the skill folder the link points to is not there`,
+    );
+    expect(check.message).toContain(C);
+    expect(check.fix).toMatch(/init --user`\.$/);
+  });
+
+  it('absent: fix with init --user; a file Astryx did not write: left as it is', () => {
+    const check = at([
+      {path: A, state: 'absent'},
+      {path: C, state: 'absent', link: true},
+    ]);
+    expect(check.message).toContain('No computer-level agent text');
+    expect(check.fix).toMatch(/init --user`\.$/);
     expect(
       at([
         {path: A, state: 'foreign'},
-        {path: C, state: 'absent'},
+        {path: C, state: 'absent', link: true},
       ]).message,
-    ).toContain(`Not written by Astryx, so left as they are: ${A}`);
+    ).toContain(`${A} was not written by Astryx, so it is left as it is`);
   });
 
   it(
@@ -545,7 +560,7 @@ describe('init outside a project (own)', () => {
   );
 
   it(
-    '--user writes only the computer-level agent text, in the home folder',
+    '--user writes only the computer-level agent text and its link, in the home folder',
     async () => {
       const home = tmpDir('home');
       vi.stubEnv('HOME', home);
@@ -564,10 +579,13 @@ describe('init outside a project (own)', () => {
           filesIn(home).filter(
             f => !f.startsWith('.cache') && !f.startsWith('.config'),
           ),
-        ).toEqual([
-          path.join('.agents', 'skills', 'astryx', 'SKILL.md'),
-          path.join('.claude', 'skills', 'astryx', 'SKILL.md'),
-        ]);
+        ).toEqual([path.join('.agents', 'skills', 'astryx', 'SKILL.md')]);
+        // Claude Code's folder is a link to it.
+        expect(
+          fs
+            .lstatSync(path.join(home, '.claude', 'skills', 'astryx'))
+            .isSymbolicLink(),
+        ).toBe(true);
       } finally {
         vi.unstubAllEnvs();
       }

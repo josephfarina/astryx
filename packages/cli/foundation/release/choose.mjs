@@ -55,8 +55,10 @@ import {relativeWithin, samePath} from '../fs/path-compare.mjs';
 /**
  * Who answers the run.
  * @typedef {object} ReleaseChoice
- * @property {'project' | 'matched' | 'carried'} copy the kind of copy that
- *   answers (`meta.answeredBy.copy`)
+ * @property {'project' | 'matched' | 'carried' | 'fallback'} copy the kind of
+ *   copy that answers (`meta.answeredBy.copy`); `fallback` when the matched
+ *   release could not be obtained and the copy that answered before global
+ *   mode answers instead (spec AST-081 FR2)
  * @property {'self' | 'project-cli' | 'release'} answer `self`: this copy;
  *   `project-cli`: hand off to the project's CLI; `release`: hand off to the
  *   cached release `version`
@@ -67,7 +69,10 @@ import {relativeWithin, samePath} from '../fs/path-compare.mjs';
  *   with, when known now
  * @property {boolean} inProject
  * @property {string | null} unavailable why the release cannot answer, when it
- *   cannot (the run fails with ERR_VERSIONS_UNAVAILABLE)
+ *   cannot
+ * @property {{version: string, bin: string | null} | null} [fallback] for a
+ *   matched release: the project's own CLI of another version, which answers
+ *   when the matched release cannot be obtained; `null` for the starting copy
  */
 
 /**
@@ -216,6 +221,13 @@ export function chooseRelease({
     };
   }
 
+  // Who answered before global mode: the project's own CLI, whatever its
+  // version, else the starting copy (null). It answers when the matched
+  // release cannot be obtained (FR2).
+  const fallback =
+    facts.cli && !samePath(real(facts.cli.dir), selfReal)
+      ? {version: facts.cli.version, bin: cliBinOf(facts.cli.dir)}
+      : null;
   let {version, range} = matchedVersionOf(facts);
   if (!version && range) {
     version = resolve(range.name, range.spec);
@@ -228,6 +240,7 @@ export function chooseRelease({
         coreVersion: null,
         inProject: true,
         unavailable: `no published release of ${range.name} matching "${range.spec}" could be found`,
+        fallback,
       };
     }
   }
@@ -291,6 +304,7 @@ export function chooseRelease({
     coreVersion,
     inProject: true,
     unavailable: null,
+    fallback,
   };
 }
 
@@ -339,30 +353,35 @@ const OUTSIDE = Object.freeze({
   lockedCliVersion: null,
 });
 
-/** Root options that take a value, so their value is not the command name. */
-const VALUE_OPTIONS = new Set(['--lang', '--detail']);
+/** Options that take a value, so their value is not the command or topic. */
+const VALUE_OPTIONS = new Set(['--lang', '--detail', '--depth']);
 
 /**
  * Is this run a command that acts on the computer rather than the folder it
- * runs in? Today that is `astryx init --user`, which writes the
- * computer-level agent text (spec AST-081 FR8, FR9).
+ * runs in? `astryx init --user`, which writes the computer-level agent text,
+ * and `astryx docs global[/…]`, the docs of global mode itself, which the copy
+ * that started the run answers, so they are readable inside a project whose
+ * release predates them (spec AST-081 FR8, FR9).
  * @param {string[]} argv arguments after `astryx`
  * @returns {boolean}
  */
 export function isComputerLevel(argv) {
-  let command = null;
-  for (let i = 0; i < argv.length; i++) {
+  const words = [];
+  for (let i = 0; i < argv.length && words.length < 2; i++) {
     const arg = argv[i];
     if (VALUE_OPTIONS.has(arg)) {
       i += 1;
       continue;
     }
-    if (!arg.startsWith('-')) {
-      command = arg;
-      break;
-    }
+    if (!arg.startsWith('-')) words.push(arg);
   }
-  return command === 'init' && argv.includes('--user');
+  const [command, topic] = words;
+  if (command === 'init') return argv.includes('--user');
+  return (
+    command === 'docs' &&
+    typeof topic === 'string' &&
+    (topic === 'global' || topic.startsWith('global/'))
+  );
 }
 
 /**

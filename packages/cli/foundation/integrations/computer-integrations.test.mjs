@@ -155,6 +155,48 @@ describe('computerInstallRoots', () => {
     fs.symlinkSync(cli, path.join(a, 'node_modules', '@astryxdesign', 'cli'));
     expect(computerInstallRoots(cli)).toEqual([a, b]);
   });
+
+  it("is every pnpm global folder when the CLI's files sit inside its own global folder (pnpm 12)", () => {
+    const globalDir = path.join(tempDir('pnpm12'), 'global', 'v11');
+    const a = path.join(globalDir, 'a');
+    const b = path.join(globalDir, 'b');
+    writeJson(path.join(a, 'package.json'), {
+      dependencies: {'@astryxdesign/cli': '0.8.0'},
+    });
+    const cli = pkgAt(
+      path.join(
+        a,
+        'node_modules',
+        '.pnpm',
+        '@astryxdesign+cli@0.8.0',
+        'node_modules',
+        '@astryxdesign',
+        'cli',
+      ),
+      {name: '@astryxdesign/cli', version: '0.8.0'},
+      null,
+    );
+    fs.mkdirSync(path.join(a, 'node_modules', '@astryxdesign'), {
+      recursive: true,
+    });
+    fs.symlinkSync(cli, path.join(a, 'node_modules', '@astryxdesign', 'cli'));
+    writeJson(path.join(b, 'package.json'), {
+      dependencies: {'@acme/widgets': '1.0.0'},
+    });
+    pkgAt(path.join(b, 'node_modules', '@acme', 'widgets'), {
+      name: '@acme/widgets',
+      version: '1.0.0',
+    });
+    expect(computerInstallRoots(cli)).toEqual([
+      fs.realpathSync(a),
+      fs.realpathSync(b),
+    ]);
+    expect(
+      scanComputerIntegrations({cliRoot: cli, release: '0.8.0'}).map(
+        c => c.name,
+      ),
+    ).toEqual(['@acme/widgets']);
+  });
 });
 
 describe('scanComputerIntegrations', () => {

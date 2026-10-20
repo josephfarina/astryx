@@ -31,6 +31,7 @@ import {
 import {
   GUIDE_NAMESPACE_PAGES,
   GUIDE_PAGE_NAMESPACES,
+  ROOT_PAGE_ALIASES,
   mergeFlatTopics,
   namespacePage,
   routeSlug,
@@ -39,6 +40,8 @@ import {
 } from './docs-pages.mjs';
 import {
   DOCSITE_CLI_COMMAND,
+  GLOBAL_PAGE,
+  GLOBAL_PAGE_CLI_COMMAND,
   getCliInvocation,
   prefixCliCommands,
   runWithCliDoor,
@@ -1761,7 +1764,9 @@ async function docsTreePages() {
       continue;
     }
     routes.push(...(await treeRoutes(root)));
-    const full = await namespacePage(readDocs, root);
+    const full = await namespacePage(readDocs, root, {
+      aliases: ROOT_PAGE_ALIASES.get(root) ?? [],
+    });
     if (!full) continue;
     pages.push(full.page);
     Object.assign(redirects, full.redirects);
@@ -1908,17 +1913,22 @@ async function generateDocsRegistry() {
   }
 
   docTopics.sort((a, b) => a.topic.localeCompare(b.topic));
-  // Docs write commands as bare `astryx ...`. The site shows them the way it
-  // always has, as `npx astryx ...`: that is the docsite's door name, and it
-  // goes through the CLI's picker like any other.
+  // Docs write commands as bare `astryx ...`. The site shows them as
+  // `npx @astryxdesign/cli ...`, which runs before any install, and as plain
+  // `astryx ...` on the global mode page, whose readers installed it. Each is
+  // a docsite door name, and goes through the CLI's picker like any other.
   const cliStem = runWithCliDoor(DOCSITE_CLI_COMMAND, () =>
     getCliInvocation(DOCSITE_ROOT),
   );
+  const globalStem = runWithCliDoor(GLOBAL_PAGE_CLI_COMMAND, () =>
+    getCliInvocation(DOCSITE_ROOT),
+  );
   for (const topic of docTopics) {
+    const stem = topic.topic === GLOBAL_PAGE ? globalStem : cliStem;
     topic.sections = withCliCommands(
       topic.sections,
-      (text, lang = null) => prefixCliCommands(text, cliStem, lang),
-      cliStem,
+      (text, lang = null) => prefixCliCommands(text, stem, lang),
+      stem,
     );
   }
 

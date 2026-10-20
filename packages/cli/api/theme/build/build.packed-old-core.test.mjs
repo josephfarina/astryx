@@ -283,8 +283,20 @@ function buildTheme(themeFile, extraArgs = []) {
     'node_modules/@astryxdesign/cli/clients/cli/bin/astryx.mjs',
   );
   try {
+    // A packed CLI outside any project's package.json reads as installed for
+    // the computer, so it gets a home folder of its own: nothing it keeps for
+    // the computer lands in the real one.
+    const home = path.join(root, 'home');
+    const env = {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      XDG_CONFIG_HOME: path.join(home, '.config'),
+      XDG_CACHE_HOME: path.join(home, '.cache'),
+      NO_UPDATE_NOTIFIER: '1',
+    };
     // prettier-ignore
-    const stdout = execFileSync(process.execPath, [bin, 'theme', 'build', ...(Array.isArray(themeFile) ? themeFile : [themeFile]), ...extraArgs, '--json'], {cwd: consumer, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']});
+    const stdout = execFileSync(process.execPath, [bin, 'theme', 'build', ...(Array.isArray(themeFile) ? themeFile : [themeFile]), ...extraArgs, '--json'], {cwd: consumer, encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe']});
     return {status: 0, envelope: JSON.parse(stdout)};
   } catch (error) {
     const e = /** @type {any} */ (error);

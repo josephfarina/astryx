@@ -12,6 +12,8 @@ import {
   isInReleaseCache,
   releasesDir,
   resolvePublishedVersion,
+  isVersionRange,
+  npmCommand,
   runNpm,
   tryLock,
 } from './cache.mjs';
@@ -199,6 +201,62 @@ describe('cachedRelease', () => {
     const dir = seedRelease(cacheDir, '0.7.1');
     expect(isInReleaseCache(dir, cacheDir)).toBe(true);
     expect(isInReleaseCache(tempDir(), cacheDir)).toBe(false);
+  });
+});
+
+describe('a declared range never reaches a shell', () => {
+  it('reads only version ranges as ranges', () => {
+    for (const ok of [
+      '^1.2.3',
+      '>=1 <2',
+      '1.x || 2.x',
+      '*',
+      '1.0.0-beta.1',
+      'latest',
+    ]) {
+      expect(isVersionRange(ok), ok).toBe(true);
+    }
+    for (const bad of [
+      '^1 & echo hi',
+      '1 && 2',
+      '1|2',
+      '1;2',
+      '"1"',
+      '$(id)',
+      '`id`',
+      'https://x',
+      '',
+      ' ',
+    ]) {
+      expect(isVersionRange(bad), bad).toBe(false);
+    }
+  });
+
+  it('asks npm nothing for a range with shell syntax in it', () => {
+    /** @type {string[][]} */
+    const asked = [];
+    const run = (/** @type {string[]} */ args) => {
+      asked.push(args);
+      return {status: 0, stdout: '"1.0.0"', stderr: ''};
+    };
+    for (const spec of ['^1 & echo hi', '^1 | tee x', '^1; rm x']) {
+      expect(
+        resolvePublishedVersion('@astryxdesign/core', spec, {run}),
+      ).toBeNull();
+    }
+    expect(
+      resolvePublishedVersion('@astryxdesign/core && x', '^1', {run}),
+    ).toBeNull();
+    expect(asked).toEqual([]);
+  });
+
+  it('starts npm from its entry file with this Node, never through a shell', () => {
+    const npm = npmCommand();
+    expect(npm.shell).toBe(false);
+    if (npm.prefix.length > 0) {
+      expect(npm.command).toBe(process.execPath);
+      expect(npm.prefix[0]).toMatch(/npm-cli\.js$/u);
+    }
   });
 });
 
