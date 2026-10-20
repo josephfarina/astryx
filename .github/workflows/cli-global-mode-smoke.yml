@@ -53,6 +53,7 @@ jobs:
         with:
           sparse-checkout: |
             .github/scripts/cli-global-mode-smoke.mjs
+            .github/scripts/skill-links-smoke.mjs
             .nvmrc
           sparse-checkout-cone-mode: false
       - uses: actions/setup-node@v7
@@ -64,8 +65,14 @@ jobs:
           path: packs
       - name: Smoke test
         run: node .github/scripts/cli-global-mode-smoke.mjs --packs packs --out results-${{ matrix.os }}.json
+      # fork-only: one linked skill (junctions on Windows), Continue copy, dangling links, opt-out, custom npm prefixes
+      - name: Skill links and prefix smoke
+        if: always()
+        run: node .github/scripts/skill-links-smoke.mjs --packs packs --out links-${{ matrix.os }}.json
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: results-${{ matrix.os }}
-          path: results-${{ matrix.os }}.json
+          path: |
+            results-${{ matrix.os }}.json
+            links-${{ matrix.os }}.json
