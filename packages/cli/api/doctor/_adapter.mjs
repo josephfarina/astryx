@@ -17,7 +17,11 @@ import {
   lastNoticeSkip,
   projectLag,
 } from '../../foundation/release/notices.mjs';
-import {isGlobalCopy, projectRootOf} from '../../foundation/release/choose.mjs';
+import {
+  coreVersionOf,
+  isGlobalCopy,
+  projectRootOf,
+} from '../../foundation/release/choose.mjs';
 import {readReleaseFacts} from '../../foundation/release/project.mjs';
 import {detectPackageManager} from '../../foundation/env/package-manager.mjs';
 import {astryxCommandsOnSearchPath} from '../../foundation/env/search-path.mjs';
@@ -319,14 +323,14 @@ export function releaseFacts(cwd, {project}) {
       !project && isGlobalCopy(CLI_ROOT)
         ? globalBehind({self: {version: answered.cli, root: CLI_ROOT}})
         : null,
-    // The project's version is its own CLI's, or, with none, its Core's.
+    // The project's version is its own CLI's, or, with none, its Core's:
+    // installed, else locked, else declared, as the daily notice reads it.
     projectLag: project
       ? projectLag({
           cwd,
           current:
-            answered.copy === 'starting' && answered.core
-              ? answered.core
-              : answered.cli,
+            (answered.copy === 'starting' && projectCoreVersion(cwd)) ||
+            answered.cli,
         })
       : null,
     searchPathCommands: astryxCommandsOnSearchPath().map(row => ({
@@ -352,6 +356,17 @@ export function outsideProject(/** @type {string} */ cwd) {
  */
 export function alignCommand(cwd, cli, core) {
   return alignCliAndCore({cwd, cli, core});
+}
+
+/**
+ * The Core release the project at `cwd` names: installed, else locked, else
+ * declared; the version the daily hint and notice compare against (spec
+ * AST-081 FR2). Null outside a project or when it names none.
+ * @param {string} cwd
+ * @returns {string | null}
+ */
+export function projectCoreVersion(cwd) {
+  return coreVersionOf(readReleaseFacts(cwd));
 }
 
 /**

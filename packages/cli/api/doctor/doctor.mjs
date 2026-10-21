@@ -58,7 +58,7 @@ import {detailView, indexView} from '../../foundation/doc-compiler/lenses.mjs';
 import {semverCompare, isValidSemver, satisfiesRange} from '../../foundation/env/semver.mjs';
 import {checkAppThemes, checkThemes} from './theme-checks.mjs';
 import {availableLine, upgradeLine} from '../../foundation/release/notices.mjs';
-import {alignCommand, addCliCommandFor, computerAgentTextState, installCommandFor, projectHasOwnCli, computerIntegrationsOutside, computerIntegrationsToAdd, displayHomePath, outsideProject, releaseFacts} from './_adapter.mjs';
+import {alignCommand, addCliCommandFor, computerAgentTextState, installCommandFor, projectCoreVersion, projectHasOwnCli, computerIntegrationsOutside, computerIntegrationsToAdd, displayHomePath, outsideProject, releaseFacts} from './_adapter.mjs';
 
 /**
  * @typedef {'pass'|'warn'|'fail'|'info'} DoctorStatus
@@ -80,6 +80,8 @@ import {alignCommand, addCliCommandFor, computerAgentTextState, installCommandFo
  * @property {string|null} coreDir - Resolved core package directory, or null.
  * @property {boolean} [ownCli] - Whether the project installs its own CLI;
  *   false means the copy that started the run answered it (spec AST-081 FR2).
+ * @property {string|null} [projectCore] - The Core release the project names
+ *   (installed, else locked, else declared), as the daily hint reads it.
  * @property {string|null} configPath - Resolved astryx.config.mjs path, or null.
  * @property {import('../../foundation/integrations/integrations.mjs').LoadedIntegration[]|null} [integrations]
  *   Every integration the project loaded, or null when the project could not be
@@ -238,7 +240,12 @@ export function checkCoreInstalled(ctx) {
  * @returns {DoctorCheck}
  */
 export function checkVersionAlignment(ctx) {
-  const coreVersion = pkgVersion(ctx.coreDir);
+  // A project with no CLI of its own and no Core installed yet (a fresh
+  // clone) is compared by the Core it locks or declares, as the daily hint
+  // compares it (spec AST-081 FR2).
+  const coreVersion =
+    pkgVersion(ctx.coreDir) ??
+    (ctx.ownCli === false ? (ctx.projectCore ?? null) : null);
   const cliPkg = readPkg(path.join(CLI_ROOT, 'package.json'));
   const cliVersion = cliPkg?.version ?? null;
 
@@ -1905,6 +1912,7 @@ export async function runChecks(options = {}) {
     nodeVersion: process.versions.node,
     coreDir,
     ownCli: projectHasOwnCli(cwd),
+    projectCore: projectCoreVersion(cwd),
     configPath,
     integrations,
     docsCatalog,

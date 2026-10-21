@@ -377,6 +377,47 @@ describe.skipIf(!POSIX)(
       expect(filesIn(dir)).toEqual(before);
     });
 
+    it("in a fresh clone, doctor names the lockfile's Core as the daily hint and notice do", () => {
+      const pc = computer();
+      const g = globalCli('npm', '9.0.0', {root: pc.home});
+      globalState(pc, {
+        latest: '9.0.5',
+        checkOkAt: Date.now(),
+        firstRunAt: Date.now() - 2 * 24 * 60 * 60_000,
+      });
+      const dir = makeProject({declare: {'@astryxdesign/core': '^9.0.0'}});
+      writeJson(path.join(dir, 'package-lock.json'), {
+        lockfileVersion: 3,
+        packages: {
+          '': {dependencies: {'@astryxdesign/core': '^9.0.0'}},
+          'node_modules/@astryxdesign/core': {version: '9.0.1'},
+        },
+      });
+      const notice = run(g.bin, ['--version'], {cwd: dir, pc}).notice;
+      expect(notice[1]).toBe(
+        'To upgrade, run: npm install @astryxdesign/core@9.0.5 @astryxdesign/cli@9.0.5, then npx astryx upgrade --from 9.0.1 --apply',
+      );
+      const doctor = JSON.parse(
+        run(g.bin, ['doctor', '--json'], {cwd: dir, pc}).stdout,
+      );
+      const check = (/** @type {string} */ id) =>
+        doctor.data.checks.find((/** @type {any} */ c) => c.id === id);
+      // FR2's warning, with the Core the lockfile records.
+      expect(check('version-alignment')).toMatchObject({
+        status: 'warn',
+        message:
+          'This project has no Astryx CLI installed; CLI 9.0.0, the one you started, answered while its Core is 9.0.1.',
+        fix: 'To match, run: npm install @astryxdesign/cli@9.0.1.',
+      });
+      // The same release and upgrade step as the notice.
+      expect(check('newest-release').message).toBe(
+        'This project uses Astryx 9.0.1; 9.0.5 is the newest.',
+      );
+      expect(check('newest-release').fix).toContain(
+        'npx astryx upgrade --from 9.0.1 --apply',
+      );
+    });
+
     it('G6 the installed Core wins over a lockfile that disagrees, for the release a project whose CLI cannot start gets', () => {
       const pc = computer();
       const g = globalCli('npm', '9.0.0', {root: pc.home});
