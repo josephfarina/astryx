@@ -44,7 +44,7 @@ import {astryxCommandsOnSearchPath} from '../env/search-path.mjs';
 import {
   CLI_PACKAGE,
   detectPackageManager,
-  getRunPrefix,
+  getCliInvocation,
 } from '../env/package-manager.mjs';
 import {satisfiesRange, semverCompare} from '../env/semver.mjs';
 import {isInReleaseCache, isReleaseVersion} from './cache.mjs';
@@ -97,8 +97,6 @@ export function takeNotice(
     const shown = state.notifiedAt ?? {};
     const last = shown[key];
     if (typeof last === 'number' && now - last < NOTICE_INTERVAL_MS) {
-      const skips = withSkip(state.noticeSkips, key, 'already-shown', now);
-      if (skips) writeGlobalState({...state, noticeSkips: skips}, stateDir);
       return /** @type {const} */ ('already-shown');
     }
     /** @type {Record<string, number>} */
@@ -113,14 +111,38 @@ export function takeNotice(
   });
   if (outcome.ran) {
     if (outcome.value === 'taken') return true;
-    if (outcome.value === 'state-unwritable') {
-      recordNoticeSkip(key, 'state-unwritable', {stateDir, now});
-    }
+    recordNoticeSkip(key, outcome.value, {stateDir, now});
     return false;
   }
-  // Recorded under a lock of its own, outside the one already given up.
   recordNoticeSkip(key, outcome.reason, {stateDir, now});
   return false;
+}
+
+/**
+ * The file beside the state file that records why notices did not print.
+ * Kept apart from the state file so recording never waits on, or races, the
+ * state file's lock: a skip caused by a held lock is recorded too.
+ * @param {string} stateDir
+ * @returns {string}
+ */
+function skipsFile(stateDir) {
+  return path.join(stateDir, 'notice-skips.json');
+}
+
+/**
+ * The recorded skips, by notice.
+ * @param {string} stateDir
+ * @returns {Record<string, import('./global-state.mjs').NoticeSkip>}
+ */
+function readSkips(stateDir) {
+  try {
+    const skips = JSON.parse(fs.readFileSync(skipsFile(stateDir), 'utf8'));
+    return skips && typeof skips === 'object' && !Array.isArray(skips)
+      ? skips
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 /** A skip with the same reason is recorded again only after this long. */
@@ -158,11 +180,12 @@ function withSkip(skips, key, reason, now) {
 }
 
 /**
- * Record why notice `key` did not print (state `noticeSkips`), for diagnosis
- * only. It adds to a state file that already exists and never creates one, so
- * a run that keeps no state (a project's own CLI before any check) writes
- * nothing. Nothing is recorded when the state file cannot be written or its
- * lock stays taken; a run never fails because of it.
+ * Record why notice `key` did not print, in `notice-skips.json` beside the
+ * state file, for diagnosis only. It takes no lock, so it never waits: the
+ * file is replaced whole, and when two runs record at once the last one
+ * stays. It writes only where a state file already exists, so a run that
+ * keeps no state (a project's own CLI before any check) writes nothing. A run
+ * never fails because of it.
  * @param {string} key
  * @param {import('./global-state.mjs').NoticeSkip['reason']} reason
  * @param {{stateDir?: string, now?: number}} [options]
@@ -174,11 +197,12 @@ export function recordNoticeSkip(
 ) {
   try {
     if (!fs.existsSync(stateFile(stateDir))) return;
-    tryStateLock(stateDir, () => {
-      const state = readGlobalState(stateDir);
-      const skips = withSkip(state.noticeSkips, key, reason, now);
-      if (skips) writeGlobalState({...state, noticeSkips: skips}, stateDir);
-    });
+    const skips = withSkip(readSkips(stateDir), key, reason, now);
+    if (!skips) return;
+    const file = skipsFile(stateDir);
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify(skips, null, 2)}\n`);
+    fs.renameSync(tmp, file);
   } catch {
     // Diagnosis only.
   }
@@ -192,9 +216,7 @@ export function recordNoticeSkip(
 export function lastNoticeSkip({stateDir = userConfigDir()} = {}) {
   /** @type {({key: string} & import('./global-state.mjs').NoticeSkip) | null} */
   let newest = null;
-  for (const [key, skip] of Object.entries(
-    readGlobalState(stateDir).noticeSkips ?? {},
-  )) {
+  for (const [key, skip] of Object.entries(readSkips(stateDir))) {
     if (
       skip &&
       typeof skip.at === 'number' &&
@@ -392,7 +414,7 @@ export function alignCliAndCore({cwd, cli, core}) {
   const root = projectRootOf(facts) ?? cwd;
   const add = ADD[detectPackageManager(root)] ?? ADD.npm;
   if (semverCompare(cli, core) > 0) {
-    return `${add} @astryxdesign/core@${cli}, then ${getRunPrefix(root)} astryx upgrade --from ${core} --apply`;
+    return `${add} @astryxdesign/core@${cli}, then ${getCliInvocation(root, {installed: true})} upgrade --from ${core} --apply`;
   }
   return `${add} ${CLI_PACKAGE}@${core}`;
 }
@@ -448,7 +470,9 @@ export function projectLag({cwd, current, stateDir = userConfigDir()}) {
   // The CLI is always installed beside Core: a project that installed only
   // Core gets it too, as recommended, so its version is pinned with Core's.
   const install = `${ADD[pm] ?? ADD.npm} @astryxdesign/core@${newest} ${CLI_PACKAGE}@${newest}`;
-  const stem = `${getRunPrefix(root)} astryx`;
+  // The command runs after the install above, so the picker's guess is the
+  // project's own CLI (spec AST-081 FR5).
+  const stem = getCliInvocation(root, {installed: true});
   return {
     root,
     current,

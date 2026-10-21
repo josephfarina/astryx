@@ -2,6 +2,7 @@
 
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {Project, DEFAULT_ISSUES_URL, findConfigPath} from './project.mjs';
 import {InMemoryConfigCache} from './config-cache.mjs';
@@ -321,6 +322,34 @@ describe('Project.load and the cliCommand an integration declares', () => {
     scaffold();
     await Project.load(tmpDir, {fresh: true});
     expect(getCliInvocation(tmpDir)).not.toBe('acme astryx');
+  });
+});
+
+describe("Project.load({core: 'project'})", () => {
+  it('reads only the installed Core, never the Core the answering release carries', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'astryx-project-core-'));
+    try {
+      fs.writeFileSync(
+        path.join(dir, 'package.json'),
+        JSON.stringify({name: 'a', dependencies: {'@astryxdesign/core': '^0.7.0'}}),
+      );
+      const any = await Project.load(dir);
+      const own = await Project.load(dir, {core: 'project'});
+      // The CLI in this repository carries the Core beside it.
+      expect(any.coreDir()).not.toBeNull();
+      expect(own.coreDir()).toBeNull();
+      expect((await own.components()).filter(c => c.package === '@astryxdesign/core')).toEqual([]);
+
+      const core = path.join(dir, 'node_modules', '@astryxdesign', 'core');
+      fs.mkdirSync(core, {recursive: true});
+      fs.writeFileSync(
+        path.join(core, 'package.json'),
+        JSON.stringify({name: '@astryxdesign/core', version: '0.7.0'}),
+      );
+      expect((await Project.load(dir, {core: 'project'})).coreDir()).toBe(fs.realpathSync(core));
+    } finally {
+      fs.rmSync(dir, {recursive: true, force: true});
+    }
   });
 });
 

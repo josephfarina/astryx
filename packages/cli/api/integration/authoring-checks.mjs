@@ -18,6 +18,7 @@
  * @position Public integration-authoring API over private discovery adapters.
  */
 
+import path from 'node:path';
 import {getCliInvocation} from '../../foundation/env/package-manager.mjs';
 import {
   packageDocsProblems,
@@ -29,7 +30,12 @@ import {
   discoverOwnedComponents,
 } from '../../foundation/discovery/component-discovery.mjs';
 import {loadComponentReplacements} from '../component/_adapter.mjs';
-import {integrationPropDrift} from './_adapter.mjs';
+import {
+  integrationCopiedPassages,
+  integrationFluff,
+  integrationPropDrift,
+  integrationStrayPointers,
+} from './_adapter.mjs';
 import {
   discoverBuiltinTopics,
   discoverIntegrationDocs,
@@ -323,10 +329,25 @@ export async function integrationDocConflicts(pkg, options = {}) {
   const version = resolved.found ? (resolved.version ?? null) : null;
   const issues = [...resolved.issues];
 
+  /** @type {import('./authoring-checks.type.mjs').CopiedPassage[]} */
+  const copiedPassages = [];
+  /** @type {import('./authoring-checks.type.mjs').DocFluff[]} */
+  const fluff = [];
+  /** @type {import('./authoring-checks.type.mjs').StrayPointer[]} */
+  const strayPointers = [];
   if (!resolved.integration?.docs || name == null) {
     return {
       type: 'integration.doc-conflicts',
-      data: {validated, name, version, findings: [], issues},
+      data: {
+        validated,
+        name,
+        version,
+        findings: [],
+        copiedPassages,
+        fluff,
+        strayPointers,
+        issues,
+      },
     };
   }
 
@@ -416,10 +437,56 @@ export async function integrationDocConflicts(pkg, options = {}) {
     )) {
       issues.push({code: 'invalid_doc_reference', severity: 'error', message});
     }
+
+    // One fact has one owner: a passage two topics repeat goes stale in one
+    // of them. Each is listed and is a warning (architecture:cli-surface
+    // DEC-8), so `integration check --strict` fails until it is fixed;
+    // `doctor integration docs` keeps its exit code, as it fails on errors.
+    copiedPassages.push(...(await integrationCopiedPassages(discovered)));
+    for (const {message} of copiedPassages) {
+      issues.push({code: 'copied_passage', severity: 'warning', message});
+    }
+    // Docs should be dense: padding phrases and mostly-glue topics, listed
+    // and warned about the same way (DEC-8).
+    // Like the other findings' `doc`, a fluff or stray-pointer `file` is
+    // relative to the package root.
+    const packageDir = /** @type {any} */ (resolved.integration).__packageDir;
+    const fromPackage = (/** @type {string} */ file) =>
+      typeof packageDir === 'string'
+        ? path.relative(packageDir, file).split(path.sep).join('/')
+        : file;
+    fluff.push(
+      ...(await integrationFluff(discovered)).map(each => ({
+        ...each,
+        file: fromPackage(each.file),
+      })),
+    );
+    for (const {message} of fluff) {
+      issues.push({code: 'doc_fluff', severity: 'warning', message});
+    }
+    // A pointer to a doc is a link, so doctor checks it (DEC-8).
+    strayPointers.push(
+      ...(await integrationStrayPointers(discovered)).map(each => ({
+        ...each,
+        file: fromPackage(each.file),
+      })),
+    );
+    for (const {message} of strayPointers) {
+      issues.push({code: 'stray_doc_pointer', severity: 'warning', message});
+    }
   }
 
   return {
     type: 'integration.doc-conflicts',
-    data: {validated, name, version, findings, issues},
+    data: {
+      validated,
+      name,
+      version,
+      findings,
+      copiedPassages,
+      fluff,
+      strayPointers,
+      issues,
+    },
   };
 }

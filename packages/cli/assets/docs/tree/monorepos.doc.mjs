@@ -36,7 +36,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: 'Astryx looks from the folder you run in: `@astryxdesign/core` or `@astryxdesign/cli` installed there or a few folders above it, else the nearest `package.json` that declares either one, up to the repository root. A folder where none of these exist is outside a project.',
+          text: 'Astryx searches upward from the current folder: `@astryxdesign/core` or `@astryxdesign/cli` installed there or a few folders above, else the nearest `package.json` declaring either, up to the repository root. Folders without any are outside projects.',
         },
       ],
     },
@@ -48,7 +48,7 @@ export const docs = {
           type: 'list',
           style: 'unordered',
           items: [
-            'A workspace member that declares Astryx is its own project, even when its packages are hoisted to the repository root. A CLI installed at the root answers it, as it always has; a member with only its own Core and no CLI anywhere is answered by the astryx command you started.',
+            'A workspace member declaring Astryx is its own project, even with packages hoisted to the repository root. A root CLI answers it, as always; a member with its own Core and no CLI anywhere gets answered by the astryx command you started.',
             'A folder without its own `package.json`, such as `src/` or `scripts/`, belongs to the project above it.',
             'A repository that builds the CLI itself, with the CLI in `packages/cli` next to Core in `packages/core`, runs that CLI.',
           ],
@@ -63,8 +63,8 @@ export const docs = {
           type: 'list',
           style: 'unordered',
           items: [
-            "A folder inside another project, such as a nested app or a repository cloned into it, answers with the enclosing project's version.",
-            'Folder names are compared the way your file system compares them, so a folder reached through a link, or typed in another letter case on macOS or Windows, answers as the folder does.',
+            "Folders inside another project, such as nested apps or cloned repositories, answer with the enclosing project's release.",
+            'Folder names compare as your file system compares them: a folder reached through a link, or typed in different letter case on macOS or Windows, answers like the folder itself.',
             "In a Yarn Plug'n'Play project, Astryx cannot see the project's own CLI, so the astryx command you started answers. Run the project's CLI through Yarn (`yarn astryx`) to use it directly.",
           ],
         },
@@ -76,7 +76,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: 'This page is part of {@link namespace:global}, which explains what global mode is and how each part works.',
+          text: 'Part of {@link namespace:global}: what global mode is and how each part works.',
         },
       ],
     },

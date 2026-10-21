@@ -35,6 +35,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {assertWithin} from '../../foundation/fs/path-safety.mjs';
 import {integrationDocTypes} from '../docs/_adapter.mjs';
+import {integrationDocConsistency} from '../../foundation/discovery/doc-consistency.mjs';
 import {
   THEME_SLUG_RE,
   unreadThemeFolders,
@@ -351,6 +352,22 @@ async function validateAtPackageDir(
   }
   if (loaded.themes && !rootProblem(loaded.themes))
     issues.push(...unreadThemeFolderIssues(packageDir, loaded));
+  // What the docs say that no reader serves: a prop listed twice, an
+  // overlay's text for a prop the doc lacks, an empty or unreachable section,
+  // and an overlay of no topic.
+  issues.push(
+    ...(await integrationDocConsistency(
+      {
+        components:
+          loaded.components && !rootProblem(loaded.components)
+            ? loaded.components
+            : undefined,
+        docs:
+          loaded.docs && !rootProblem(loaded.docs) ? loaded.docs : undefined,
+      },
+      packageDir,
+    )),
+  );
   if (scanUnreachable) {
     issues.push(
       ...(await findUnreachableContributionIssues(packageDir, loaded)),

@@ -33,6 +33,7 @@ import {
   checkPackageManager,
 } from './doctor.mjs';
 import {formatCliCommand} from '../../foundation/env/package-manager.mjs';
+import {Project} from '../../foundation/config/project.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const cwd = REPO;
@@ -86,6 +87,30 @@ describe('doctor leaf', () => {
     expect(ids).toContain('node-version');
     expect(ids).toContain('core-installed');
   }, SLOW);
+});
+
+describe('doctor never reads the carried Core (spec AST-081 FR3)', () => {
+  it('loads the project to read only its installed Core, in a project with nothing installed', async () => {
+    const dir = mkProject({
+      'package.json': JSON.stringify({
+        name: 'fresh-clone',
+        dependencies: {'@astryxdesign/core': '^0.7.0'},
+      }),
+    });
+    const load = vi.spyOn(Project, 'load');
+    const coreDir = vi.spyOn(Project.prototype, 'coreDir');
+    try {
+      await doctor({cwd: dir});
+      // Doctor's own project reads only the installed Core, and no Core a
+      // project read during the run is the carried one.
+      expect(load.mock.calls.some(([, options]) => options?.core === 'project')).toBe(true);
+      expect(coreDir).toHaveBeenCalled();
+      for (const result of coreDir.mock.results) expect(result.value).toBeNull();
+    } finally {
+      load.mockRestore();
+      coreDir.mockRestore();
+    }
+  });
 });
 
 describe('integration issue check', () => {

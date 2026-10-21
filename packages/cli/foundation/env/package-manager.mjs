@@ -506,15 +506,25 @@ export function cliBinResolves(targetDir = process.cwd()) {
  *   make npm fetch an unrelated registry package, and the unpinned scoped
  *   package the newest release.
  *
+ * With `installed`, the line follows a step that installs the project's own
+ * CLI (an update notice, the hint that matches a project's CLI to its Core),
+ * so the guess is that CLI: `<run-prefix> astryx`. A declared `cliCommand`
+ * and a host's door still come first.
+ *
  * @param {string} [targetDir] the project the printed command runs in;
  *   defaults to the working directory
+ * @param {{installed?: boolean}} [options]
  * @returns {string}
  */
-export function getCliInvocation(targetDir) {
+export function getCliInvocation(targetDir, {installed = false} = {}) {
   const declared = declaredCliCommand(targetDir);
   if (declared.command) return declared.command;
-  if (declared.conflict) return guessCliInvocation(targetDir);
-  return cliDoor() ?? guessCliInvocation(targetDir);
+  const guess = () =>
+    installed
+      ? `${getRunPrefix(targetDir)} ${CLI_BIN}`
+      : guessCliInvocation(targetDir);
+  if (declared.conflict) return guess();
+  return cliDoor() ?? guess();
 }
 
 /**

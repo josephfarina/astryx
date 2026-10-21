@@ -17,7 +17,7 @@ export const docs = {
   blocks: [
     {
       type: 'prose',
-      text: "In global mode: a manifest loads the same way when users install your package for their computer, and applies in folders outside any project; peer ranges are checked against the global CLI's release. See {@link namespace:global} and {@link generic:global-integrations}.",
+      text: "In global mode: installed for the computer, beside the global CLI, your package's manifest is read as it is in a project and applies in folders outside any project; peer ranges are checked against the global CLI's release. See {@link namespace:global} and {@link generic:global-integrations}.",
     },
     {
       type: 'prose',

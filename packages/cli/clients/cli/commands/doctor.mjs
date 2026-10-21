@@ -94,7 +94,7 @@ function issueBlocks(issues) {
   return [
     section('Integration issues'),
     records(issues, {
-      fields: ['severity', 'code', 'message'],
+      fields: ['severity', 'code', 'message', 'fix', 'file', 'line'],
       format: {severity: statusToken},
     }),
   ];
@@ -191,7 +191,7 @@ function printIntegrationValidation(data) {
     ...(data.issues.length > 0
       ? [
           records(data.issues, {
-            fields: ['severity', 'code', 'message'],
+            fields: ['severity', 'code', 'message', 'fix', 'file', 'line'],
             format: {severity: statusToken},
           }),
         ]
@@ -292,6 +292,9 @@ function propDriftBlocks(report, failed) {
           'codeType',
           'docRequired',
           'codeRequired',
+          'docDefault',
+          'codeDefault',
+          'fix',
         ],
         format: {severity: statusToken},
       }),
@@ -395,7 +398,16 @@ function printDocConflicts(data) {
     section(
       `Checking integration docs: ${integrationLabel(data) ?? '(local package)'}`,
     ),
-    ...issueBlocks(data.issues),
+    // A copied passage or fluff is listed below with its detail, so its
+    // issue is not printed twice.
+    ...issueBlocks(
+      data.issues.filter(
+        issue =>
+          issue.code !== 'copied_passage' &&
+          issue.code !== 'doc_fluff' &&
+          issue.code !== 'stray_doc_pointer',
+      ),
+    ),
   ];
   if (
     !data.issues.some(
@@ -415,6 +427,79 @@ function printDocConflicts(data) {
       records(data.findings, {
         fields: ['severity', 'topic', 'relationship', 'coreTopic', 'message'],
         format: {severity: statusToken},
+      }),
+    );
+  }
+  const copied = data.copiedPassages ?? [];
+  if (copied.length === 0) {
+    if (!data.issues.some(issue => issue.severity === 'error')) {
+      output.push(text('[ok] No topic copies a passage from another.'));
+    }
+  } else {
+    output.push(
+      text(
+        `[warn] ${copied.length} copied passage(s) (copied_passage): two topics say the same thing word for word. Keep the text in one and link to it from the other.`,
+      ),
+      records(copied, {
+        fields: [
+          'topic',
+          'section',
+          'line',
+          'otherTopic',
+          'otherOwner',
+          'owner',
+          'text',
+          'words',
+          'passages',
+          'message',
+        ],
+      }),
+    );
+  }
+  const fluff = data.fluff ?? [];
+  if (fluff.length === 0) {
+    if (!data.issues.some(issue => issue.severity === 'error')) {
+      output.push(text('[ok] No filler phrases or low-density topics.'));
+    }
+  } else {
+    output.push(
+      text(
+        `[warn] ${fluff.length} fluff finding(s) (doc_fluff): words that add length, not meaning. Cut each one.`,
+      ),
+      records(fluff, {
+        fields: [
+          'topic',
+          'kind',
+          'phrase',
+          'section',
+          'file',
+          'line',
+          'density',
+          'message',
+        ],
+      }),
+    );
+  }
+  const stray = data.strayPointers ?? [];
+  if (stray.length === 0) {
+    if (!data.issues.some(issue => issue.severity === 'error')) {
+      output.push(text('[ok] Every pointer to a doc is a link.'));
+    }
+  } else {
+    output.push(
+      text(
+        `[warn] ${stray.length} stray doc pointer(s) (stray_doc_pointer): a written \`astryx docs <name>\` where a link would be checked. Replace each with the link shown.`,
+      ),
+      records(stray, {
+        fields: [
+          'topic',
+          'section',
+          'file',
+          'line',
+          'pointer',
+          'link',
+          'message',
+        ],
       }),
     );
   }

@@ -12,6 +12,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {spawn} from 'node:child_process';
 import {
+  recordDeclaredCliCommands,
+  runWithCliDoor,
+} from '../env/cli-command.mjs';
+import {
   NOTICE_INTERVAL_MS,
   availableLine,
   globalBehind,
@@ -20,6 +24,7 @@ import {
   oldGlobalCommand,
   oldGlobalLines,
   projectLag,
+  alignCliAndCore,
   lastNoticeSkip,
   recordNoticeSkip,
   takeNotice,
@@ -142,19 +147,23 @@ describe('why a notice did not print (diagnostic state)', () => {
     const stateDir = tempDir('state');
     expect(takeNotice('global', {stateDir, now: 1000})).toBe(true);
     expect(takeNotice('global', {stateDir, now: 2000})).toBe(false);
-    expect(readGlobalState(stateDir).noticeSkips).toEqual({
+    const skips = () =>
+      JSON.parse(
+        fs.readFileSync(path.join(stateDir, 'notice-skips.json'), 'utf8'),
+      );
+    expect(skips()).toEqual({
       global: {reason: 'already-shown', at: 2000},
     });
+    // Kept out of the state file.
+    expect(readGlobalState(stateDir)).not.toHaveProperty('noticeSkips');
     // Within the hour: not rewritten.
     expect(takeNotice('global', {stateDir, now: 3000})).toBe(false);
-    expect(readGlobalState(stateDir).noticeSkips?.global.at).toBe(2000);
+    expect(skips().global.at).toBe(2000);
     // After it: recorded again.
     expect(takeNotice('global', {stateDir, now: 2000 + 60 * 60_000})).toBe(
       false,
     );
-    expect(readGlobalState(stateDir).noticeSkips?.global.at).toBe(
-      2000 + 60 * 60_000,
-    );
+    expect(skips().global.at).toBe(2000 + 60 * 60_000);
     expect(lastNoticeSkip({stateDir})).toEqual({
       key: 'global',
       reason: 'already-shown',
@@ -187,6 +196,27 @@ describe('why a notice did not print (diagnostic state)', () => {
       reason: 'lock-timeout',
       at: 5,
     });
+  }, 10_000);
+
+  it('records a lock-timeout while another run holds the lock, waiting only once', () => {
+    const stateDir = tempDir('state');
+    updateGlobalState({latest: '0.7.1'}, stateDir);
+    const lockDir = path.join(stateDir, '.lock-state');
+    fs.mkdirSync(lockDir);
+    fs.writeFileSync(
+      path.join(lockDir, 'owner.json'),
+      JSON.stringify({pid: process.pid, host: os.hostname(), at: Date.now()}),
+    );
+    const started = Date.now();
+    expect(takeNotice('global', {stateDir, now: 7})).toBe(false);
+    // One lock wait (2 s), not a second one to record the skip.
+    expect(Date.now() - started).toBeLessThan(3500);
+    expect(lastNoticeSkip({stateDir})).toEqual({
+      key: 'global',
+      reason: 'lock-timeout',
+      at: 7,
+    });
+    fs.rmSync(lockDir, {recursive: true});
   }, 10_000);
 });
 
@@ -343,6 +373,54 @@ describe('globalBehind and projectLag', () => {
       install: 'pnpm add @astryxdesign/core@0.7.3 @astryxdesign/cli@0.7.3',
       upgrade: 'pnpm exec astryx upgrade --from 0.7.1 --apply',
     });
+  });
+});
+
+describe('the commands notices print go through the command-name picker (spec AST-081 FR5)', () => {
+  /** A Core-only npm project behind the newest release. */
+  const coreOnlyProject = () => {
+    const dir = project(tempDir(), {'@astryxdesign/core': '0.7.1'});
+    writeJson(path.join(dir, 'package-lock.json'), {lockfileVersion: 3});
+    installCore(dir, '0.7.1');
+    return dir;
+  };
+
+  it("use an integration's declared cliCommand for the upgrade step", () => {
+    const stateDir = checked('0.7.3');
+    const dir = coreOnlyProject();
+    recordDeclaredCliCommands(dir, [
+      {name: '@acme/a', cliCommand: 'acme astryx'},
+    ]);
+    try {
+      expect(projectLag({cwd: dir, current: '0.7.1', stateDir})?.upgrade).toBe(
+        'acme astryx upgrade --from 0.7.1 --apply',
+      );
+      expect(alignCliAndCore({cwd: dir, cli: '0.7.3', core: '0.7.1'})).toBe(
+        'npm install @astryxdesign/core@0.7.3, then acme astryx upgrade --from 0.7.1 --apply',
+      );
+    } finally {
+      recordDeclaredCliCommands(dir, []);
+    }
+  });
+
+  it("use a host's door when nothing is declared", () => {
+    const stateDir = checked('0.7.3');
+    const dir = coreOnlyProject();
+    runWithCliDoor('host astryx', () => {
+      expect(projectLag({cwd: dir, current: '0.7.1', stateDir})?.upgrade).toBe(
+        'host astryx upgrade --from 0.7.1 --apply',
+      );
+      expect(alignCliAndCore({cwd: dir, cli: '0.7.3', core: '0.7.1'})).toBe(
+        'npm install @astryxdesign/core@0.7.3, then host astryx upgrade --from 0.7.1 --apply',
+      );
+    });
+  });
+
+  it("fall back to the project's own installed CLI", () => {
+    const dir = coreOnlyProject();
+    expect(alignCliAndCore({cwd: dir, cli: '0.7.3', core: '0.7.1'})).toBe(
+      'npm install @astryxdesign/core@0.7.3, then npx astryx upgrade --from 0.7.1 --apply',
+    );
   });
 });
 

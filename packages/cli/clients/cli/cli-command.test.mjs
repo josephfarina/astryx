@@ -9,6 +9,7 @@
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {spawnSync} from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {runCli} from '../../test-utils/run-cli.mjs';
 import {
@@ -61,6 +62,51 @@ describe("an integration's cliCommand", () => {
     const {status, stderr} = await runCli(['theme', 'remove', 'nope'], tmpDir);
     expect(status).toBe(1);
     expect(stderr).toContain('`acme astryx theme add nope`');
+  });
+});
+
+describe('the setup nudge in a project with no CLI of its own', () => {
+  it('names the declared cliCommand for the step after installing the CLI (spec AST-081 FR5)', async () => {
+    // Outside this repository: the nudge stays quiet in the CLI's own checkout.
+    const app = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'astryx-cli-command-nudge-'),
+    );
+    try {
+      // Only Core, of another release than the CLI that answers, an
+      // integration declaring cliCommand, and no agent docs yet.
+      fs.writeFileSync(
+        path.join(app, 'package.json'),
+        JSON.stringify({
+          name: 'app',
+          dependencies: {'@acme/x': '1.0.0', '@astryxdesign/core': '0.0.1'},
+        }),
+      );
+      fs.writeFileSync(path.join(app, 'package-lock.json'), '{}');
+      for (const [name, version, extra] of [
+        ['@acme/x', '1.0.0', 'acme astryx'],
+        ['@astryxdesign/core', '0.0.1', null],
+      ]) {
+        const dir = path.join(app, 'node_modules', ...name.split('/'));
+        fs.mkdirSync(dir, {recursive: true});
+        fs.writeFileSync(
+          path.join(dir, 'package.json'),
+          JSON.stringify({name, version}),
+        );
+        if (extra) {
+          fs.writeFileSync(
+            path.join(dir, 'astryx.integration.mjs'),
+            `export default ${JSON.stringify({cliCommand: extra})};\n`,
+          );
+        }
+      }
+
+      const {stderr} = await runCli(['docs', 'tokens'], app);
+      expect(stderr).toContain(
+        'Next step: run `npm install @astryxdesign/cli@0.0.1`, then `acme astryx init`',
+      );
+    } finally {
+      fs.rmSync(app, {recursive: true, force: true});
+    }
   });
 });
 

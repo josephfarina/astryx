@@ -16,7 +16,7 @@ import {Command, Option} from 'commander';
 import {fileURLToPath} from 'node:url';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import {formatCliCommand, getCliInvocation, getRunPrefix} from '../../foundation/env/package-manager.mjs';
+import {formatCliCommand, getCliInvocation} from '../../foundation/env/package-manager.mjs';
 import {hasRecordedProject} from '../../foundation/env/cli-command.mjs';
 import {isOutsideProject} from '../../foundation/env/project-scope.mjs';
 import {API_VERSION, setJsonMode} from '../../foundation/response/json.mjs';
@@ -646,7 +646,7 @@ export async function createProgram() {
       if (choice.copy === 'starting' && choice.coreVersion && choice.coreVersion !== choice.version) {
         const root = projectRootOf(readReleaseFacts(cwd)) ?? cwd;
         console.error(
-          setupNudge(`${getRunPrefix(root)} astryx`, {before: addCliCommand(root, choice.coreVersion)}).trimEnd(),
+          setupNudge(getCliInvocation(root, {installed: true}), {before: addCliCommand(root, choice.coreVersion)}).trimEnd(),
         );
         return;
       }

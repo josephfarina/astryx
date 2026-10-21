@@ -1776,7 +1776,9 @@ export async function runChecks(options = {}) {
   /** @type {import('../../foundation/config/project.mjs').Project | null} */
   let project = null;
   try {
-    project = await Project.load(cwd);
+    // Doctor judges the project, so it reads only the Core the project
+    // installed, never a carried one (spec AST-081 FR3).
+    project = await Project.load(cwd, {core: 'project'});
   } catch (err) {
     // A project the CLI cannot load leaves the checks that need it
     // skipped. The reason is kept: those checks and the config

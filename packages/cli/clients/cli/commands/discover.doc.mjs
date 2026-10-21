@@ -17,8 +17,8 @@ export const doc = {
   summary:
     'Browse and search integrations: the ones you have and the ones you could add',
   description:
-    'Lists the integrations this project loads and, when it has a discover source, the ones it could add, with what each one adds. ' +
-    'Integrations installed for the computer, beside the CLI installed for it, load outside a project; inside one they are listed as ones the project could add, with its install command. ' +
+    'Lists what this project has, the integrations it loads and the official packages it declares, then what it could add: the official Astryx packages first, then whatever its discover sources list, with what each one adds. ' +
+    'Inside a project, integrations installed for the computer, beside the CLI installed for it, are listed as ones the project could add, with its install command; outside one they load. ' +
     'A package query shows one package: what it adds, every version a source knows, and the command that adds it. ' +
     "An @scope/name/Component path prints an installed component's doc; any other item path shows that item. " +
     'Anything else, even an exact component name, searches every item and package and lists the matches. Discover only reads: your package manager installs, updates, and removes packages.',

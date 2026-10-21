@@ -40,7 +40,7 @@ export const docs = {
           items: [
             'Name the topic in lowercase kebab-case, such as `deploying`. Readers type the name as a command argument, so it holds only letters, digits, `_`, and `-`.',
             'Keep the name stable: readers and links find the topic by it.',
-            'Pick a name that `astryx docs` does not already list: no Core topic, and no section such as `tokens` or `layout`. To take over or add to a Core topic, see {@link generic:extend-or-replace}.',
+            'Pick a name `astryx docs` does not already list: no Core topic, and no section such as `tokens` or `layout`. To take over or add to a Core topic, see {@link generic:extend-or-replace}.',
           ],
         },
       ],
@@ -67,7 +67,7 @@ export const docs = {
           type: 'list',
           style: 'unordered',
           items: [
-            'Replace the `Overview` placeholder that `integration add` writes.',
+            'Replace the `Overview` placeholder `integration add` writes.',
             'Every field is in {@link schema:reference-doc}.',
           ],
         },
@@ -170,7 +170,7 @@ export const docs = {
           items: [
             'Readers open a topic by its `name`, not its file name. Name the file after the doc, `<name>.doc.mjs`, so each one is easy to find.',
             'A topic with no `placement` is a flat topic: the docs list shows it under Topics, and readers open it by its name.',
-            'To give your package its own section in the docs tree instead, see {@link generic:sections-and-placement}.',
+            'For a section of your own in the docs tree, see {@link generic:sections-and-placement}.',
           ],
         },
       ],

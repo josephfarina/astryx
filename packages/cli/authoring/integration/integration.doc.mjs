@@ -126,8 +126,8 @@ export const doc = {
         'trimmed, non-blank string of at most 240 Unicode code points with no ' +
         'line separators, control characters, NUL, or Astryx/XDS managed-marker ' +
         'text. The configured project may contain at most 32 integration lines ' +
-        'total. Start a command in a line with the word astryx alone, with no ' +
-        'runner in front: the block names the command the app runs once, at its top.',
+        'total. Write each command in a line as a bare `astryx` command; the ' +
+        'managed block says once, before your lines, how the app starts the CLI.',
     },
     {
       type: 'prose',

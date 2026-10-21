@@ -58,16 +58,15 @@ export const CHECK_INTERVAL_MS = 24 * 60 * 60_000;
  * @property {{writtenBy?: string, attemptFor?: string, attemptAt?: number}} [agentText]
  * @property {Record<string, number>} [notifiedAt] when each update notice
  *   last printed (notices.mjs)
- * @property {Record<string, NoticeSkip>} [noticeSkips] why each update notice
- *   last did not print, for diagnosis only: `astryx doctor` shows the newest.
- *   Not part of any contract; its shape may change in any release.
  */
 
 /**
  * Why an update notice did not print: `already-shown` (it printed within the
  * day), `no-newer` (nothing newer is known), `lock-timeout` (another run held
  * the state file's lock past the wait), or `state-unwritable` (the time it
- * printed could not be recorded).
+ * printed could not be recorded). Recorded in `notice-skips.json` beside the
+ * state file (notices.mjs), for diagnosis only: not part of any contract, and
+ * its shape may change in any release.
  * @typedef {{reason: 'already-shown' | 'no-newer' | 'lock-timeout' | 'state-unwritable', at: number}} NoticeSkip
  */
 

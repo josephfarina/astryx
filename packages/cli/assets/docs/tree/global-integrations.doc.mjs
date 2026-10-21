@@ -41,7 +41,7 @@ export const docs = {
         },
         {
           type: 'prose',
-          text: "Inside a project that does not install your package, `astryx discover` lists it as one the project could add, with the project's install command, when it supports the project's version.",
+          text: "Inside a project that does not install your package, `astryx discover` offers it, with the command that adds it to that project, once your peer range admits the project's release.",
         },
       ],
     },

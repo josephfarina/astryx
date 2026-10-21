@@ -160,6 +160,17 @@ function makeProject({core, cli, brokenCli, declare}) {
 }
 
 /**
+ * What discover lists as available beyond the official Astryx list, which it
+ * always reads.
+ * @param {any} discover
+ * @returns {any[]}
+ */
+const notOfficial = discover =>
+  (discover.meta?.available ?? []).filter(
+    (/** @type {any} */ entry) => entry.source !== 'Astryx',
+  );
+
+/**
  * The once-a-day hint in a project with no CLI of its own.
  * @param {string} answered
  * @param {string} core
@@ -1102,7 +1113,7 @@ describe.skipIf(!POSIX)(
         run(g.bin, ['discover', '--json'], {cwd: dir, pc}).stdout,
       );
       expect(discover.data).toEqual([]);
-      expect(discover.meta.available).toEqual([
+      expect(notOfficial(discover)).toEqual([
         {
           name: '@acme/widgets',
           components: [],
@@ -1150,7 +1161,7 @@ describe.skipIf(!POSIX)(
       const discover = JSON.parse(
         run(g.bin, ['discover', '--json'], {cwd: dir, pc}).stdout,
       );
-      expect(discover.meta?.available ?? []).toEqual([]);
+      expect(notOfficial(discover)).toEqual([]);
     });
 
     it('G38 an integration whose peer range excludes the answering release is skipped outside a project, and doctor warns', () => {
@@ -1389,7 +1400,7 @@ describe.skipIf(!POSIX)(
         run(g.bin, ['discover', '--json'], {cwd: dir, pc}).stdout,
       );
       expect(
-        discover.meta.available.map((/** @type {any} */ p) => p.name),
+        notOfficial(discover).map((/** @type {any} */ p) => p.name),
       ).toEqual(['@acme/widgets']);
       const doctor = JSON.parse(
         run(g.bin, ['doctor', '--json'], {cwd: dir, pc}).stdout,
@@ -1422,7 +1433,7 @@ describe.skipIf(!POSIX)(
         run(cli.bin, ['discover', '--json'], {cwd: dir, pc}).stdout,
       );
       expect(discover.meta.answeredBy.copy).toBe('starting');
-      expect(discover.meta.available).toEqual([
+      expect(notOfficial(discover)).toEqual([
         {
           name: '@acme/widgets',
           components: [],

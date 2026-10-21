@@ -23,7 +23,7 @@ export const docs = {
   blocks: [
     {
       type: 'prose',
-      text: 'In global mode: themes from an integration installed for the computer are listed outside projects, where `theme add` lists but writes nothing; inside a project, only themes from integrations the project installs. See {@link namespace:global} and {@link generic:global-integrations}.',
+      text: 'In global mode: outside projects, the theme list includes themes from integrations installed for the computer, and `theme add` there only shows them; inside a project, it lists only themes from integrations the project installs. See {@link namespace:global} and {@link generic:global-integrations}.',
     },
     {
       type: 'prose',

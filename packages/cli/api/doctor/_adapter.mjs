@@ -136,7 +136,7 @@ export function listProjectSourceFiles(root, generatedModule) {
 
 /** @param {string} projectDir */
 export async function discoverDoctorThemes(projectDir) {
-  const project = await Project.load(projectDir);
+  const project = await Project.load(projectDir, {core: 'project'});
   return project.themes();
 }
 
@@ -238,7 +238,7 @@ export async function computerIntegrationsOutside(cwd) {
     };
   }
   try {
-    const project = await Project.load(cwd);
+    const project = await Project.load(cwd, {core: 'project'});
     /** @type {Array<{name: string, __computer?: boolean, __loadError?: string}>} */
     const loaded = project.loadedIntegrations;
     return {

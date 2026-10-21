@@ -65,7 +65,7 @@ import {
   discoverValidIntegrationComponents,
 } from '../discovery/component-discovery.mjs';
 import {resolveComponentReplacements} from '../discovery/component-replacement.mjs';
-import {CLI_ROOT, findCoreDir} from '../fs/paths.mjs';
+import {CLI_ROOT, findCoreDir, findProjectCoreDir} from '../fs/paths.mjs';
 import {
   applyTemplateReplacements,
   effectiveTemplateDiscovery,
@@ -423,6 +423,12 @@ export class Project {
   #cache;
   /** @type {string} */
   #hash;
+  /**
+   * Which Core the project reads: `any`, its installed Core else the Core the
+   * answering release carries, or `project`, its installed Core only.
+   * @type {'any' | 'project'}
+   */
+  #core = 'any';
   /** @type {ProjectIntegrationIssue[]} */
   #issues = [];
   /**
@@ -445,6 +451,7 @@ export class Project {
    * @param {import('../integrations/integrations.mjs').LoadedIntegration[]} init.loadedIntegrations
    * @param {import('./config-cache.mjs').ConfigCache} init.cache
    * @param {string} init.hash config content hash
+   * @param {'any' | 'project'} [init.core] which Core it reads
    */
   constructor({
     cwd,
@@ -454,7 +461,9 @@ export class Project {
     loadedIntegrations,
     cache,
     hash,
+    core = 'any',
   }) {
+    this.#core = core;
     this.#cwd = cwd;
     this.#configPath = configPath;
     this.#config = config;
@@ -469,11 +478,15 @@ export class Project {
    * and loads the configured integrations. Discovery is NOT run here — it is
    * lazy and memoized on the returned instance.
    *
+   * `core: 'project'` reads only the project's installed Core, never the Core
+   * the answering release carries: the commands that judge or change a
+   * project (`doctor`, `swizzle`, `upgrade`) load it so (spec AST-081 FR3).
+   *
    * @param {string} [cwd]
-   * @param {{cache?: import('./config-cache.mjs').ConfigCache, fresh?: boolean}} [options]
+   * @param {{cache?: import('./config-cache.mjs').ConfigCache, fresh?: boolean, core?: 'any' | 'project'}} [options]
    * @returns {Promise<Project>}
    */
-  static async load(cwd = process.cwd(), {cache, fresh = false} = {}) {
+  static async load(cwd = process.cwd(), {cache, fresh = false, core = 'any'} = {}) {
     const resolvedCache = fresh
       ? new InMemoryConfigCache()
       : (cache ?? new InMemoryConfigCache());
@@ -608,6 +621,7 @@ export class Project {
       loadedIntegrations,
       cache: resolvedCache,
       hash,
+      core,
     });
     PROVIDER_LEDGERS.set(project, resolution.ledger);
     return project;
@@ -743,6 +757,18 @@ export class Project {
   }
 
   /**
+   * The Core this project reads: its installed Core, else, unless it was
+   * loaded with `core: 'project'`, the Core the answering release carries
+   * (spec AST-081 FR3). Null when there is none.
+   * @returns {string | null}
+   */
+  coreDir() {
+    return this.#core === 'project'
+      ? findProjectCoreDir(this.#cwd)
+      : findCoreDir(this.#cwd);
+  }
+
+  /**
    * Core + integration component ownership records. Wraps
    * discoverOwnedComponents for core and discoverIntegrationComponents (via
    * discoverOwnedComponents) for integrations. Invalid component records are
@@ -753,7 +779,7 @@ export class Project {
    */
   async components() {
     return this.#memo('components', async () => {
-      const coreDir = findCoreDir(this.#cwd);
+      const coreDir = this.coreDir();
       /** @type {Array<{name: string, package: string, group: string|null, docPath: string|null, sourcePath: string|null, issuesUrl: string|undefined}>} */
       const records = [];
 
@@ -804,7 +830,7 @@ export class Project {
   async componentReplacements() {
     return this.#memo('componentReplacements', async () => {
       const replacements = await resolveComponentReplacements(
-        findCoreDir(this.#cwd),
+        this.coreDir(),
         this.#loadedIntegrations,
       );
       for (const finding of replacements.findings) {
@@ -954,7 +980,7 @@ export class Project {
     const replacing = new Map();
     if (this.#loadedIntegrations.length > 0) {
       const {active} = await resolveComponentReplacements(
-        findCoreDir(this.#cwd),
+        this.coreDir(),
         this.#loadedIntegrations,
       );
       for (const each of active) {

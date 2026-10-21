@@ -25,7 +25,7 @@ export const docs = {
   blocks: [
     {
       type: 'prose',
-      text: "In global mode: every command declares what it does outside a project (`outsideProject`). Most answer as in a new project; some write nothing and name the project they need; a few, such as `doctor`, `init`, and `upgrade`, do something else. A command that does not answer as in a new project says exactly what it does in its `In global mode:` note, and the CLI's tests run every command in an empty folder to check what it does against its declared value. In a project, the project's version of Astryx runs every command, whichever astryx command you type. See {@link namespace:global}.",
+      text: "In global mode: each command declares its behavior outside projects (`outsideProject`). Most answer like a new project; some write nothing and name the project they need; `doctor`, `init`, and `upgrade` behave differently. Commands with different behavior describe it in their `In global mode:` note, and CLI tests run each command in an empty folder against its declared value. Inside a project, the project's Astryx release runs every command, whichever astryx command you type. See {@link namespace:global}.",
     },
   ],
 };

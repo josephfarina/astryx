@@ -32,13 +32,13 @@ export const docs = {
               '`astryx doctor integration validate`',
               'The manifest loads, each root holds contributions the CLI can read, and each doc matches its authoring type',
               'A declared root is missing (`missing_root`), a contribution does not load (`invalid_doc`, `invalid_component`, `invalid_theme`), or two templates in the package replace one Core id (`ambiguous_template_replacement`)',
-              "The manifest has a key this CLI does not know (`unknown_manifest_key`), or a doc field does not match the doc's authoring type: a field the type does not have, a missing required field, or a value outside the field's type. It checks docs with your installed `typescript`, or, where that is missing or has no JavaScript compiler API (TypeScript 7), with an installed `@typescript/typescript6`; without either, it prints `[skip] Docs not type-checked`. With no `astryx.integration.mjs` it prints a hint and exits 0",
+              "The manifest has a key this CLI does not know (`unknown_manifest_key`), or a doc field does not match the doc's authoring type: a field the type does not have, a missing required field, or a value outside the field's type. It also warns on what no reader can serve: a prop listed twice (`duplicate_prop`), a `propDescriptions` key that names no documented prop (`unknown_translated_prop`), a section with no content (`empty_section`), two sections of a topic with one key (`duplicate_section_key`), or a `.doc.zh.mjs` or `.doc.dense.mjs` overlay beside no topic file (`orphan_doc_overlay`). It checks docs with your installed `typescript`, or, where that is missing or has no JavaScript compiler API (TypeScript 7), with an installed `@typescript/typescript6`; without either, it prints `[skip] Docs not type-checked`. With no `astryx.integration.mjs` it prints a hint and exits 0",
             ],
             [
               '`astryx doctor integration components`',
               "No component name clashes with a Core component, each `replaces` names one Core component, and each component doc's props match the component's TypeScript props",
               'Core is not installed (`core_not_found`). In a package that declares the CLI range that turns replacement on, a `replaces` target is missing (`missing_component_replacement_target`) or invalid (`invalid_component_replacement`), or two components replace one Core component (`ambiguous_component_replacement`)',
-              'A name clashes with Core, a component sets `replaces` in a package without that range (`inactive_component_replacement`, plus any missing, invalid, or duplicate `replaces` reported as a warning), or a documented prop differs from the code: it is missing there (`not_in_code`), the doc omits a prop the package declares (`not_in_doc`), or its `required` (`required_mismatch`) or type (`type_mismatch`) disagrees. It reads props with your installed `typescript`; without it, it prints `[skip] Props not compared`',
+              'A name clashes with Core, a component sets `replaces` in a package without that range (`inactive_component_replacement`, plus any missing, invalid, or duplicate `replaces` reported as a warning), or a documented prop differs from the code: it is missing there (`not_in_code`), the doc omits a prop the package declares (`not_in_doc`), or its `required` (`required_mismatch`), type (`type_mismatch`), or literal `default` (`default_mismatch`) disagrees. It reads props with your installed `typescript`; without it, it prints `[skip] Props not compared`',
             ],
             [
               '`astryx doctor integration templates`',
@@ -48,9 +48,9 @@ export const docs = {
             ],
             [
               '`astryx doctor integration docs`',
-              'Your docs tree, every link, and topic names against Core',
+              'Your docs tree, every link, topic names against Core, passages two topics repeat word for word, padding phrases and low-density topics, and written pointers to docs',
               'A topic takes a Core topic name without `replaces` or `extends`, a doc is invalid (`invalid_doc`), or a namespace or placement fails, which hides the doc (`invalid_doc_graph`)',
-              'A link names no doc (`invalid_doc_graph`)',
+              'A link names no doc (`invalid_doc_graph`), two topics repeat a passage word for word (`copied_passage`), prose pads with a listed phrase or falls under the density floor (`doc_fluff`), or prose writes `astryx docs <name>` where a link would be checked (`stray_doc_pointer`)',
             ],
             [
               '`astryx integration check`',
@@ -78,7 +78,7 @@ export const docs = {
       content: [
         {
           type: 'prose',
-          text: 'Every integration runs `integration check --strict` in its own build, so every build keeps your docs, types, and links in sync; this is required, not optional. Run `integration verify` before you publish. Install devDependencies first, because the components check needs Core, and `tsc --noEmit` needs `typescript` and a `tsconfig.json`. In package.json:',
+          text: 'Every integration runs `integration check --strict` in its own build, so every build keeps your docs, types, and links in sync; this is required, not optional. The strict check fails on every copied passage the docs check lists ({@link generic:check-your-docs}). Run `integration verify` before you publish. Install devDependencies first, because the components check needs Core, and `tsc --noEmit` needs `typescript` and a `tsconfig.json`. In package.json:',
         },
         {
           type: 'code',

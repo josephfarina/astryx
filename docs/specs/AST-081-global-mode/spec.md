@@ -159,7 +159,10 @@ works on is `spec:AST-040` FR9's.
   - When the project's own CLI is installed but cannot start, the matched
     release answers: the copy that started the run when it is that release,
     otherwise the release in the per-user cache, installed there through the
-    package manager the first time a project needs it. The package manager is
+    package manager the first time a project needs it; a hosted run takes it
+    only from a package set that qualifies under `architecture:cli-surface`
+    INV30 and installs nothing, so with no such set the release cannot be
+    obtained. The package manager is
     started without a shell, and a declared Core range is read only when it is a
     plain version range, so nothing a project declares reaches a shell. While a
     release installs, or while the run waits for another run installing it, a

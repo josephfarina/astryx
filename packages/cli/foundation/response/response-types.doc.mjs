@@ -117,7 +117,7 @@ export const doc = {
     {
       value: 'discover.list',
       description:
-        'The integrations the project loads (name, category, components, version, a list per other kind they add, and latest when a source knows it); with a discover source, meta.available lists what the project could add and meta.sources reports each source; when empty it carries meta.configured to tell "nothing configured" from "nothing discovered".',
+        'What the project has, the integrations it loads and the official packages it declares, official packages first (name, category, components, version, a list per other kind they add, and latest when a source knows it); meta.available lists what the project could add, the official packages first, each with the command that adds it, and meta.sources reports each source, the official list last; when it lists no integration it carries meta.configured to tell "nothing configured" from "nothing discovered".',
     },
     {
       value: 'discover.detail',
@@ -174,12 +174,13 @@ export const doc = {
     // gap reports
     {
       value: 'gap-report.categories',
-      description: 'The fixed gap category values and human-readable labels.',
+      description:
+        'The fixed gap category values and human-readable labels; when a loaded integration names its own issues URL, meta.destinations lists every destination ({to, default, issuesUrl}) and meta.ask tells an agent to ask the person.',
     },
     {
       value: 'gap-report.file',
       description:
-        'An aggregate receipt: overall status, the selected package, issuesUrl (or null), deliveries in handler order, each {handlerType: project | integration | fallback, handler, audience, status, url, message}, and filedCount/routedOnlyCount totals.',
+        'An aggregate receipt: overall status, the selected package, issuesUrl (or null), deliveries in handler order, each {handlerType: project | integration | fallback, handler, audience, status, url, message}, and filedCount/routedOnlyCount totals; without --to, when a loaded integration names its own issues URL, destinations and ask as on gap-report.categories.',
     },
 
     // template
@@ -332,12 +333,12 @@ export const doc = {
     {
       value: 'integration.pack-check',
       description:
-        'The packed-package check: name, version, packable, tarball {filename, fileCount, size, unpackedSize} or null, inventory {manifest, roots [{kind, path, expectedFiles, missingFiles, complete}], expectedFiles, packedFiles}, contributions {local, packed}, each null or {themes [{slug, exportName}], components, templates [{id, type, name}], codemods [{version, id}], docs, agentDocsAppend}, and issues [{code, severity, message}].',
+        'The packed-package check: name, version, packable, tarball {filename, fileCount, size, unpackedSize} or null, inventory {manifest, roots [{kind, path, expectedFiles, missingFiles, complete}], expectedFiles, packedFiles}, contributions {local, packed}, each null or {themes [{slug, exportName}], components, templates [{id, type, name}], codemods [{version, id}], docs, agentDocsAppend}, and issues [{code, severity, message, fix?, file?, line?}] (the issues validation finds in the source and, prefixed packed_, in the packed tree, with the fix and the place when the check knows them).',
     },
     {
       value: 'integration.validate',
       description:
-        'The validation result: validated (false when nothing was validated: with no package.json the issues list carries one no_package error so the command exits 1, and with a package.json but no integration manifest the issues list is empty and proves nothing), the package name and version (both null when validated is false) plus issues, an AstryxIntegrationIssue[] of {code, severity: warning | error, message}, and notes when there are any: {code, message} information that fails nothing, such as invalid_cli_command for a malformed cliCommand. When the manifest loads, docTypes checks each doc against its published authoring type: status (checked | skipped), reason, typescript, docs, findings (all warnings, each naming the field and a fix), unchecked, and fixtures (test fixture docs not checked).',
+        'The validation result: validated (false when nothing was validated: with no package.json the issues list carries one no_package error so the command exits 1, and with a package.json but no integration manifest the issues list is empty and proves nothing), the package name and version (both null when validated is false) plus issues, an AstryxIntegrationIssue[] of {code, severity: warning | error, message, fix?, file?, line?} (fix: the change that resolves it; file and line: where, relative to the package), and notes when there are any: {code, message} information that fails nothing, such as invalid_cli_command for a malformed cliCommand. When the manifest loads, docTypes checks each doc against its published authoring type: status (checked | skipped), reason, typescript, docs, findings (all warnings, each naming the field and a fix), unchecked, and fixtures (test fixture docs not checked).',
     },
     {
       value: 'integration.template-conflicts',
@@ -347,12 +348,12 @@ export const doc = {
     {
       value: 'integration.component-conflicts',
       description:
-        'validated (false when no integration manifest was found, so nothing was inspected), the integration identity, structural issues, and non-blocking conflicts where an integration component name is also owned by Core; each conflict includes the exact package-qualified command. When the manifest loads and declares a components root, propDrift compares documented props with the TypeScript props: status (checked | skipped), reason, typescript, components, typesCompared, typesSkipped, findings (all warnings), unchecked, typesNotCompared, and propsNotChecked.',
+        'validated (false when no integration manifest was found, so nothing was inspected), the integration identity, structural issues, and non-blocking conflicts where an integration component name is also owned by Core; each conflict includes the exact package-qualified command. When the manifest loads and declares a components root, propDrift compares documented props with the TypeScript props: status (checked | skipped), reason, typescript, components, typesCompared, typesSkipped, findings (all warnings; a default_mismatch carries docDefault, codeDefault, and a fix), unchecked, typesNotCompared, and propsNotChecked.',
     },
     {
       value: 'integration.doc-conflicts',
       description:
-        'validated (false when no integration manifest was found, so nothing was inspected), the integration identity, structural issues, and Core doc overlaps. Each finding includes `severity` (`info` | `error`) and `relationship` (`replaces` | `extends` | `accidental`).',
+        'validated (false when no integration manifest was found, so nothing was inspected), the integration identity, structural issues, and Core doc overlaps. Each finding includes `severity` (`info` | `error`) and `relationship` (`replaces` | `extends` | `accidental`). copiedPassages lists each pair of topics that repeat 10 or more words of prose word for word: topic, section, otherTopic, otherOwner (package | core), words, passages, owner (the topic that should keep the text), text (the passage as the topic writes it), line (where the copy starts in the topic to change, or null), and message (the exact replacement); each is also a copied_passage warning in issues. fluff lists padding phrases and low-density topics: topic, kind (phrase | density), phrase, section, file (relative to the package root), line, density, and message (what to cut or write instead); each is also a doc_fluff warning in issues. strayPointers lists each code span in prose that is exactly `astryx docs <name>` for a doc that exists: topic, section, file (relative to the package root), line, pointer (the written command), link (the {@link} that replaces it), and message; each is also a stray_doc_pointer warning in issues.',
     },
     {
       value: 'integration.check',
