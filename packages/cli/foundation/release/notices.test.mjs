@@ -147,23 +147,19 @@ describe('why a notice did not print (diagnostic state)', () => {
     const stateDir = tempDir('state');
     expect(takeNotice('global', {stateDir, now: 1000})).toBe(true);
     expect(takeNotice('global', {stateDir, now: 2000})).toBe(false);
-    const skips = () =>
-      JSON.parse(
-        fs.readFileSync(path.join(stateDir, 'notice-skips.json'), 'utf8'),
-      );
-    expect(skips()).toEqual({
+    expect(readGlobalState(stateDir).noticeSkips).toEqual({
       global: {reason: 'already-shown', at: 2000},
     });
-    // Kept out of the state file.
-    expect(readGlobalState(stateDir)).not.toHaveProperty('noticeSkips');
     // Within the hour: not rewritten.
     expect(takeNotice('global', {stateDir, now: 3000})).toBe(false);
-    expect(skips().global.at).toBe(2000);
+    expect(readGlobalState(stateDir).noticeSkips?.global.at).toBe(2000);
     // After it: recorded again.
     expect(takeNotice('global', {stateDir, now: 2000 + 60 * 60_000})).toBe(
       false,
     );
-    expect(skips().global.at).toBe(2000 + 60 * 60_000);
+    expect(readGlobalState(stateDir).noticeSkips?.global.at).toBe(
+      2000 + 60 * 60_000,
+    );
     expect(lastNoticeSkip({stateDir})).toEqual({
       key: 'global',
       reason: 'already-shown',
@@ -187,36 +183,19 @@ describe('why a notice did not print (diagnostic state)', () => {
     fs.rmSync(lockDir, {recursive: true});
     expect(stateLockHolder(stateDir)).toBeNull();
     // Nothing is recorded where no state file exists yet.
-    recordNoticeSkip('global', 'lock-timeout', {stateDir, now: 4});
+    recordNoticeSkip('global', 'no-newer', {stateDir, now: 4});
     expect(fs.existsSync(path.join(stateDir, 'state.json'))).toBe(false);
-    updateGlobalState({latest: '0.7.1'}, stateDir);
-    recordNoticeSkip('global', 'lock-timeout', {stateDir, now: 5});
-    expect(lastNoticeSkip({stateDir})).toEqual({
-      key: 'global',
-      reason: 'lock-timeout',
-      at: 5,
-    });
   }, 10_000);
 
-  it('records a lock-timeout while another run holds the lock, waiting only once', () => {
+  it('records nothing for a notice the lock kept from printing, and writes no other file', () => {
     const stateDir = tempDir('state');
     updateGlobalState({latest: '0.7.1'}, stateDir);
     const lockDir = path.join(stateDir, '.lock-state');
-    fs.mkdirSync(lockDir);
-    fs.writeFileSync(
-      path.join(lockDir, 'owner.json'),
-      JSON.stringify({pid: process.pid, host: os.hostname(), at: Date.now()}),
-    );
-    const started = Date.now();
-    expect(takeNotice('global', {stateDir, now: 7})).toBe(false);
-    // One lock wait (2 s), not a second one to record the skip.
-    expect(Date.now() - started).toBeLessThan(3500);
-    expect(lastNoticeSkip({stateDir})).toEqual({
-      key: 'global',
-      reason: 'lock-timeout',
-      at: 7,
-    });
+    fs.mkdirSync(lockDir, {recursive: true});
+    expect(takeNotice('global', {stateDir, now: 6})).toBe(false);
     fs.rmSync(lockDir, {recursive: true});
+    expect(lastNoticeSkip({stateDir})).toBeNull();
+    expect(fs.readdirSync(stateDir).sort()).toEqual(['state.json']);
   }, 10_000);
 });
 

@@ -38,7 +38,7 @@ export const docs = {
               '`astryx doctor integration components`',
               "No component name clashes with a Core component, each `replaces` names one Core component, and each component doc's props match the component's TypeScript props",
               'Core is not installed (`core_not_found`). In a package that declares the CLI range that turns replacement on, a `replaces` target is missing (`missing_component_replacement_target`) or invalid (`invalid_component_replacement`), or two components replace one Core component (`ambiguous_component_replacement`)',
-              'A name clashes with Core, a component sets `replaces` in a package without that range (`inactive_component_replacement`, plus any missing, invalid, or duplicate `replaces` reported as a warning), or a documented prop differs from the code: it is missing there (`not_in_code`), the doc omits a prop the package declares (`not_in_doc`), or its `required` (`required_mismatch`), type (`type_mismatch`), or literal `default` (`default_mismatch`) disagrees. It reads props with your installed `typescript`; without it, it prints `[skip] Props not compared`',
+              'A name clashes with Core, a component sets `replaces` in a package without that range (`inactive_component_replacement`, plus any missing, invalid, or duplicate `replaces` reported as a warning), or a documented prop differs from the code: it is missing there (`not_in_code`), the doc omits a prop the package declares (`not_in_doc`), or its `required` (`required_mismatch`), type (`type_mismatch`), or literal `default` (`default_mismatch`) disagrees, or a `{@link}` in a component doc names no doc (`invalid_doc_graph`). It reads props with your installed `typescript`; without it, it prints `[skip] Props not compared`',
             ],
             [
               '`astryx doctor integration templates`',
@@ -50,7 +50,7 @@ export const docs = {
               '`astryx doctor integration docs`',
               'Your docs tree, every link, topic names against Core, passages two topics repeat word for word, padding phrases and low-density topics, and written pointers to docs',
               'A topic takes a Core topic name without `replaces` or `extends`, a doc is invalid (`invalid_doc`), or a namespace or placement fails, which hides the doc (`invalid_doc_graph`)',
-              'A link names no doc (`invalid_doc_graph`), two topics repeat a passage word for word (`copied_passage`), prose pads with a listed phrase or falls under the density floor (`doc_fluff`), or prose writes `astryx docs <name>` where a link would be checked (`stray_doc_pointer`)',
+              'A link names no doc (`invalid_doc_graph`), two topics repeat a passage word for word (`copied_passage`), prose pads with a listed phrase or falls under the density floor (`doc_fluff`), or prose, a description or summary, or the text of a component doc writes `astryx docs <name>` where a link would be checked (`stray_doc_pointer`)',
             ],
             [
               '`astryx integration check`',

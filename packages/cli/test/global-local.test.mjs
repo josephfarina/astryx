@@ -37,7 +37,7 @@ import {globalUpgradeCommand} from '../foundation/release/notices.mjs';
 import {relativeWithin, samePath} from '../foundation/fs/path-compare.mjs';
 import {userCacheDir} from '../foundation/env/user-dirs.mjs';
 import {astryxCommandsOnSearchPath} from '../foundation/env/search-path.mjs';
-import {tryLock} from '../foundation/release/cache.mjs';
+import {npmCommand, tryLock} from '../foundation/release/cache.mjs';
 import {LEASE_SILENCE_MS} from '../foundation/release/lock-lease.mjs';
 
 const POSIX = process.platform !== 'win32';
@@ -59,9 +59,15 @@ afterAll(() => {
 function computer(options = {}) {
   const home = tempDir('home');
   const cache = path.join(home, '.cache');
-  // A `node` command for scripts that start with `#!/usr/bin/env node`.
+  // A `node` command for scripts that start with `#!/usr/bin/env node`, and
+  // the runner's npm, linked to its entry file as distributions install it,
+  // so a run finds npm wherever this Node keeps it.
   const nodeBin = tempDir('node-bin');
   fs.symlinkSync(process.execPath, path.join(nodeBin, 'node'));
+  const npm = npmCommand();
+  if (POSIX && npm.prefix.length > 0) {
+    fs.symlinkSync(npm.prefix[0], path.join(nodeBin, 'npm'));
+  }
   return {
     home,
     cache,
@@ -79,7 +85,11 @@ function computer(options = {}) {
 function envOf(pc, env = {}) {
   const base = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([k]) => !/^(?:npm_|XDG_|ASTRYX|CI$|NO_UPDATE_NOTIFIER$)/iu.test(k),
+      // A proxy would carry the request for the local test registry away.
+      ([k]) =>
+        !/^(?:npm_|XDG_|ASTRYX|CI$|NO_UPDATE_NOTIFIER$|(?:https?|all|no)_proxy$)/iu.test(
+          k,
+        ),
     ),
   );
   return {
@@ -722,10 +732,28 @@ describe.skipIf(!POSIX)(
         globalState(pc, {firstRunAt: Date.now() - 2 * 24 * 60 * 60_000});
         const env = {npm_config_registry: registry.url};
         run(g.bin, ['--version'], {cwd: tempDir('empty'), pc, env});
-        for (let i = 0; i < 300 && !readState(pc).latest; i++) {
+        // That run started two background steps: the check and the
+        // computer-level agent text. Each takes the state file's lock to
+        // record its result, so a later run's notice could find the lock
+        // held. Wait for both completion records, not for a time: the
+        // check's latest release with its lock released, and the agent
+        // text written for this release.
+        const stateDir = path.join(pc.home, '.config', 'astryx');
+        const settled = () => {
+          const state = readState(pc);
+          return (
+            state.latest === '9.0.5' &&
+            state.agentText?.writtenBy === '9.0.0' &&
+            !fs.existsSync(path.join(stateDir, '.lock-check')) &&
+            !fs.existsSync(path.join(stateDir, '.lock-state'))
+          );
+        };
+        const deadline = Date.now() + 150_000;
+        while (!settled() && Date.now() < deadline) {
           await new Promise(done => setTimeout(done, 100));
         }
         expect(readState(pc).latest).toBe('9.0.5');
+        expect(readState(pc).agentText?.writtenBy).toBe('9.0.0');
         // The check installed nothing.
         expect(
           fs.existsSync(path.join(pc.astryxCache, 'releases', '9.0.5')),
@@ -748,7 +776,38 @@ describe.skipIf(!POSIX)(
       } finally {
         await registry.close();
       }
-    }, 60_000);
+    }, 240_000);
+
+    it("a host's door names the upgrade step of the project update notice, printed as the run ends (b32)", () => {
+      const pc = computer();
+      const g = globalCli('npm', '9.0.0', {root: pc.home});
+      globalState(pc, {
+        latest: '9.0.5',
+        checkOkAt: Date.now(),
+        firstRunAt: Date.now() - 2 * 24 * 60 * 60_000,
+      });
+      const dir = makeProject({core: '9.0.0'});
+      writeJson(path.join(dir, 'package-lock.json'), {lockfileVersion: 3});
+      // A host that runs the CLI inside its door, as the programmatic entry does.
+      const host = path.join(tempDir('host'), 'host.mjs');
+      fs.writeFileSync(
+        host,
+        [
+          "import {pathToFileURL} from 'node:url';",
+          `const at = rel => pathToFileURL(${JSON.stringify(g.dir)} + '/' + rel).href;`,
+          "const {runWithCliDoor} = await import(at('foundation/env/cli-command.mjs'));",
+          "const {startRun} = await import(at('foundation/release/handoff.mjs'));",
+          `await runWithCliDoor('host astryx', () => startRun({cliRoot: ${JSON.stringify(g.dir)}, argv: ['--version']}));`,
+          '',
+        ].join('\n'),
+      );
+      const r = run(host, [], {cwd: dir, pc});
+      expect(r.status).toBe(0);
+      expect(r.notice).toEqual([
+        available('9.0.0', '9.0.5'),
+        'To upgrade, run: npm install @astryxdesign/core@9.0.5 @astryxdesign/cli@9.0.5, then host astryx upgrade --from 9.0.0 --apply',
+      ]);
+    });
 
     it('G23 the newest release needs a newer Node: the global copy answers, and the notice and doctor name the Node first', () => {
       const pc = computer();

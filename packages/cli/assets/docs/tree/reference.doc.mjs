@@ -62,16 +62,10 @@ export const docs = {
               '`%APPDATA%\\astryx`',
             ],
             [
-              'Update checks and notices',
+              'Update checks and notices, and why the last notice or check did not happen (for `astryx doctor` only)',
               '`<settings>/state.json`',
               '`<settings>/state.json`',
               '`<settings>\\state.json`',
-            ],
-            [
-              'Why the last notices did not print (diagnosis only)',
-              '`<settings>/notice-skips.json`',
-              '`<settings>/notice-skips.json`',
-              '`<settings>\\notice-skips.json`',
             ],
             [
               'Agent guide setting, and the links Astryx made',

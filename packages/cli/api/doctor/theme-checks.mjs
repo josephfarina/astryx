@@ -797,6 +797,16 @@ export async function checkAppThemes(cwd) {
       message:
         'Could not check local build freshness until every local output resolves.',
     });
+  } else if (localThemes.length > 0 && !findDoctorCoreDir(state.projectDir)) {
+    // A build reads Core, and doctor reads only the Core the project
+    // installed, never the one the answering copy carries (spec AST-081 FR3).
+    checks.push({
+      id: 'theme-local-builds',
+      label: 'Local theme build freshness',
+      status: 'info',
+      message:
+        "The project's Core isn't installed, so local theme builds were not checked. Install the project's dependencies, then run doctor again.",
+    });
   } else if (localThemes.length === 0) {
     checks.push({
       id: 'theme-local-builds',
@@ -820,7 +830,7 @@ export async function checkAppThemes(cwd) {
           const receipt = await themeBuild(
             path.join(availableTheme.sourceDir, availableTheme.entry),
             {check: true},
-            {cwd: state.projectDir},
+            {cwd: state.projectDir, projectCore: true},
           );
           if (
             receipt == null ||

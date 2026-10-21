@@ -55,19 +55,22 @@ export const CHECK_INTERVAL_MS = 24 * 60 * 60_000;
  * @property {number} [checkOkAt]
  * @property {string} [latest]
  * @property {string | null} [latestNode]
+ * @property {{at: number, reason: string}} [checkFailed] why the last check
+ *   did not reach the registry, for diagnosis only (`astryx doctor`); cleared
+ *   by a check that does. Not part of any contract.
  * @property {{writtenBy?: string, attemptFor?: string, attemptAt?: number}} [agentText]
  * @property {Record<string, number>} [notifiedAt] when each update notice
  *   last printed (notices.mjs)
+ * @property {Record<string, NoticeSkip>} [noticeSkips] why each update notice
+ *   last did not print, for diagnosis only: `astryx doctor` shows the newest.
+ *   Not part of any contract; its shape may change in any release.
  */
 
 /**
  * Why an update notice did not print: `already-shown` (it printed within the
- * day), `no-newer` (nothing newer is known), `lock-timeout` (another run held
- * the state file's lock past the wait), or `state-unwritable` (the time it
- * printed could not be recorded). Recorded in `notice-skips.json` beside the
- * state file (notices.mjs), for diagnosis only: not part of any contract, and
- * its shape may change in any release.
- * @typedef {{reason: 'already-shown' | 'no-newer' | 'lock-timeout' | 'state-unwritable', at: number}} NoticeSkip
+ * day) or `no-newer` (nothing newer is known). Recorded only while the run
+ * holds the state file's lock.
+ * @typedef {{reason: 'already-shown' | 'no-newer', at: number}} NoticeSkip
  */
 
 /**
@@ -386,6 +389,27 @@ export function maybeStartCheck(options = {}) {
 }
 
 /**
+ * Why the last update check did not reach the registry, when it failed after
+ * the last one that did; null otherwise. For diagnosis only.
+ * @param {string} [stateDir]
+ * @returns {{at: number, reason: string} | null}
+ */
+export function lastCheckFailure(stateDir = userConfigDir()) {
+  const state = readGlobalState(stateDir);
+  const failed = state.checkFailed;
+  if (
+    !failed ||
+    typeof failed.at !== 'number' ||
+    typeof failed.reason !== 'string'
+  ) {
+    return null;
+  }
+  return typeof state.checkOkAt === 'number' && state.checkOkAt > failed.at
+    ? null
+    : {at: failed.at, reason: failed.reason};
+}
+
+/**
  * Start a detached worker that outlives this run and reaches no stream.
  * @param {string} worker
  * @param {string} stateDir
@@ -419,10 +443,27 @@ export function runCheck(options = {}) {
     return readGlobalState(stateDir);
   }
   try {
-    const latest = resolve();
-    if (!latest) return readGlobalState(stateDir);
+    /** @type {string} */
+    let reason = 'unknown';
+    const latest = resolve({
+      onFailure: why => {
+        reason = why;
+      },
+    });
+    if (!latest) {
+      // Recorded so doctor can say why notices stopped (diagnosis only).
+      return updateGlobalState(
+        {checkFailed: {at: Date.now(), reason}},
+        stateDir,
+      );
+    }
     return updateGlobalState(
-      {latest: latest.version, latestNode: latest.node, checkOkAt: Date.now()},
+      {
+        latest: latest.version,
+        latestNode: latest.node,
+        checkOkAt: Date.now(),
+        checkFailed: undefined,
+      },
       stateDir,
     );
   } finally {

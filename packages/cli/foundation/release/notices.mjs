@@ -97,6 +97,8 @@ export function takeNotice(
     const shown = state.notifiedAt ?? {};
     const last = shown[key];
     if (typeof last === 'number' && now - last < NOTICE_INTERVAL_MS) {
+      const skips = withSkip(state.noticeSkips, key, 'already-shown', now);
+      if (skips) writeGlobalState({...state, noticeSkips: skips}, stateDir);
       return /** @type {const} */ ('already-shown');
     }
     /** @type {Record<string, number>} */
@@ -109,40 +111,10 @@ export function takeNotice(
       ? /** @type {const} */ ('taken')
       : /** @type {const} */ ('state-unwritable');
   });
-  if (outcome.ran) {
-    if (outcome.value === 'taken') return true;
-    recordNoticeSkip(key, outcome.value, {stateDir, now});
-    return false;
-  }
-  recordNoticeSkip(key, outcome.reason, {stateDir, now});
-  return false;
-}
-
-/**
- * The file beside the state file that records why notices did not print.
- * Kept apart from the state file so recording never waits on, or races, the
- * state file's lock: a skip caused by a held lock is recorded too.
- * @param {string} stateDir
- * @returns {string}
- */
-function skipsFile(stateDir) {
-  return path.join(stateDir, 'notice-skips.json');
-}
-
-/**
- * The recorded skips, by notice.
- * @param {string} stateDir
- * @returns {Record<string, import('./global-state.mjs').NoticeSkip>}
- */
-function readSkips(stateDir) {
-  try {
-    const skips = JSON.parse(fs.readFileSync(skipsFile(stateDir), 'utf8'));
-    return skips && typeof skips === 'object' && !Array.isArray(skips)
-      ? skips
-      : {};
-  } catch {
-    return {};
-  }
+  // A skip is recorded only inside the lock that made the decision. A lock
+  // held past the wait, or a state file that cannot be written, records
+  // nothing: doctor names a lock's holder from the lock itself.
+  return outcome.ran && outcome.value === 'taken';
 }
 
 /** A skip with the same reason is recorded again only after this long. */
@@ -180,12 +152,12 @@ function withSkip(skips, key, reason, now) {
 }
 
 /**
- * Record why notice `key` did not print, in `notice-skips.json` beside the
- * state file, for diagnosis only. It takes no lock, so it never waits: the
- * file is replaced whole, and when two runs record at once the last one
- * stays. It writes only where a state file already exists, so a run that
- * keeps no state (a project's own CLI before any check) writes nothing. A run
- * never fails because of it.
+ * Record why notice `key` did not print (state `noticeSkips`), for diagnosis
+ * only. It adds to a state file that already exists and never creates one, so
+ * a run that keeps no state (a project's own CLI before any check) writes
+ * nothing. It is written only while this run holds the state file's lock:
+ * when the lock stays taken or the file cannot be written, nothing is
+ * recorded, and a run never fails because of it.
  * @param {string} key
  * @param {import('./global-state.mjs').NoticeSkip['reason']} reason
  * @param {{stateDir?: string, now?: number}} [options]
@@ -197,12 +169,11 @@ export function recordNoticeSkip(
 ) {
   try {
     if (!fs.existsSync(stateFile(stateDir))) return;
-    const skips = withSkip(readSkips(stateDir), key, reason, now);
-    if (!skips) return;
-    const file = skipsFile(stateDir);
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, `${JSON.stringify(skips, null, 2)}\n`);
-    fs.renameSync(tmp, file);
+    tryStateLock(stateDir, () => {
+      const state = readGlobalState(stateDir);
+      const skips = withSkip(state.noticeSkips, key, reason, now);
+      if (skips) writeGlobalState({...state, noticeSkips: skips}, stateDir);
+    });
   } catch {
     // Diagnosis only.
   }
@@ -216,7 +187,9 @@ export function recordNoticeSkip(
 export function lastNoticeSkip({stateDir = userConfigDir()} = {}) {
   /** @type {({key: string} & import('./global-state.mjs').NoticeSkip) | null} */
   let newest = null;
-  for (const [key, skip] of Object.entries(readSkips(stateDir))) {
+  for (const [key, skip] of Object.entries(
+    readGlobalState(stateDir).noticeSkips ?? {},
+  )) {
     if (
       skip &&
       typeof skip.at === 'number' &&

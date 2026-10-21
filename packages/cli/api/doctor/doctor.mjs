@@ -1382,6 +1382,8 @@ export function checkCliCommand(ctx) {
  * @property {import('../../foundation/release/notices.mjs').ProjectLag | null} [projectLag]
  *   the project's release, when it is behind the newest (inside a project)
  * @property {{key: string, reason: string, at: number} | null} [lastNoticeSkip]
+ * @property {{at: number, reason: string} | null} [lastCheckFailure] why the
+ *   last update check did not reach the registry, after the last that did
  *   the newest update notice that did not print, and why (diagnostic only)
  * @property {{pid: number | null, host: string | null, since: number} | null} [stateLock]
  *   who holds the state file's lock now (diagnostic only)
@@ -1429,7 +1431,11 @@ export function checkAnsweringRelease(ctx) {
  */
 export function checkNewestRelease(ctx) {
   const check = newestReleaseCheck(ctx);
-  const notes = [skipNote(ctx.lastNoticeSkip), lockNote(ctx.stateLock)].filter(Boolean);
+  const notes = [
+    checkFailureNote(ctx.lastCheckFailure),
+    skipNote(ctx.lastNoticeSkip),
+    lockNote(ctx.stateLock),
+  ].filter(Boolean);
   return notes.length > 0 ? {...check, message: [check.message, ...notes].join(' ')} : check;
 }
 
@@ -1445,12 +1451,29 @@ function lockNote(lock) {
   return `The state file's lock is held${by} since ${new Date(lock.since).toISOString()}.`;
 }
 
+/**
+ * The note on an update check that did not reach the registry (diagnostic
+ * only): no check, no notices.
+ * @param {{at: number, reason: string} | null | undefined} failed
+ * @returns {string | null}
+ */
+function checkFailureNote(failed) {
+  if (!failed) return null;
+  const why =
+    failed.reason === 'npm-missing'
+      ? 'npm could not be started'
+      : failed.reason === 'bad-reply'
+        ? "npm's answer named no release"
+        : failed.reason.startsWith('npm-failed: ')
+          ? `npm failed (${failed.reason.slice('npm-failed: '.length)}); its registry and proxy settings decide where it asks`
+          : failed.reason;
+  return `The last update check, ${new Date(failed.at).toISOString()}, did not reach the registry: ${why}.`;
+}
+
 /** What a recorded notice skip's reason means, for doctor's update line. */
 const SKIP_REASONS = {
   'already-shown': 'it had already printed that day',
   'no-newer': 'no newer release was known',
-  'lock-timeout': "another run held the state file's lock past the wait",
-  'state-unwritable': 'the state file could not be written',
 };
 
 /**
@@ -1914,6 +1937,7 @@ export async function runChecks(options = {}) {
       latest: facts.latest,
       projectLag: facts.projectLag,
       lastNoticeSkip: facts.lastNoticeSkip,
+      lastCheckFailure: facts.lastCheckFailure,
       stateLock: facts.stateLock,
     }),
   );

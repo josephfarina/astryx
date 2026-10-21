@@ -10,6 +10,7 @@ import {
   CHECK_INTERVAL_MS,
   knownLatest,
   knownLatestRelease,
+  lastCheckFailure,
   maybeFetchCore,
   maybeKeepAgentText,
   maybeStartCheck,
@@ -115,11 +116,28 @@ describe('runCheck', () => {
     expect(fs.readdirSync(stateDir).sort()).toEqual(['state.json']);
   });
 
-  it('changes nothing when the registry cannot be reached', () => {
+  it('records why when the registry cannot be reached, and a later check that reaches it clears that', () => {
     const stateDir = tempDir('state');
     updateGlobalState({firstRunAt: 1}, stateDir);
-    expect(runCheck({stateDir, resolve: () => null})).toEqual({firstRunAt: 1});
+    const failed = runCheck({
+      stateDir,
+      resolve: ({onFailure} = {}) => {
+        onFailure?.('npm-failed: ECONNREFUSED');
+        return null;
+      },
+    });
+    expect(failed).toEqual({
+      firstRunAt: 1,
+      checkFailed: {at: expect.any(Number), reason: 'npm-failed: ECONNREFUSED'},
+    });
     expect(knownLatest(stateDir)).toBeNull();
+    expect(lastCheckFailure(stateDir)).toEqual({
+      at: failed.checkFailed?.at,
+      reason: 'npm-failed: ECONNREFUSED',
+    });
+    runCheck({stateDir, resolve: () => ({version: '0.7.3', node: null})});
+    expect(readGlobalState(stateDir).checkFailed).toBeUndefined();
+    expect(lastCheckFailure(stateDir)).toBeNull();
   });
 
   it('keeps the state in the per-user configuration folder', () => {

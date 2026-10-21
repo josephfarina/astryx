@@ -14,6 +14,7 @@ import {
   resolvePublishedVersion,
   isVersionRange,
   npmCommand,
+  resolveLatestRelease,
   runNpm,
   tryLock,
   endRecordedInstall,
@@ -465,6 +466,95 @@ describe('a declared range never reaches a shell', () => {
       resolvePublishedVersion('@astryxdesign/core && x', '^1', {run}),
     ).toBeNull();
     expect(asked).toEqual([]);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'takes an npm beside the running Node, or on the PATH, that links to its entry file',
+    () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'astryx-npm-link-'));
+      try {
+        // A distribution layout: npm's files away from Node's folder, and an
+        // npm link into them on the PATH.
+        const entry = path.join(
+          root,
+          'lib',
+          'node_modules_22',
+          'npm',
+          'bin',
+          'npm-cli.js',
+        );
+        fs.mkdirSync(path.dirname(entry), {recursive: true});
+        fs.writeFileSync(entry, '');
+        const bin = path.join(root, 'bin');
+        fs.mkdirSync(bin);
+        fs.symlinkSync(entry, path.join(bin, 'npm'));
+        // A Node with no npm beside it.
+        const node = path.join(root, 'node', 'bin', 'node');
+        fs.mkdirSync(path.dirname(node), {recursive: true});
+        expect(
+          npmCommand({env: {PATH: bin}, platform: 'linux', execPath: node}),
+        ).toEqual({
+          command: node,
+          prefix: [fs.realpathSync(entry)],
+          shell: false,
+        });
+        // The same link beside the running Node.
+        fs.symlinkSync(entry, path.join(path.dirname(node), 'npm'));
+        expect(
+          npmCommand({env: {PATH: ''}, platform: 'linux', execPath: node}),
+        ).toEqual({
+          command: node,
+          prefix: [fs.realpathSync(entry)],
+          shell: false,
+        });
+        // Nothing anywhere: npm on the PATH, started directly.
+        expect(
+          npmCommand({
+            env: {PATH: ''},
+            platform: 'linux',
+            execPath: path.join(root, 'none', 'node'),
+          }),
+        ).toEqual({command: 'npm', prefix: [], shell: false});
+      } finally {
+        fs.rmSync(root, {recursive: true, force: true});
+      }
+    },
+  );
+
+  it('names why the newest release could not be asked for', () => {
+    /** @type {string[]} */
+    const reasons = [];
+    const onFailure = (/** @type {string} */ r) => reasons.push(r);
+    const missing = Object.assign(new Error('spawn npm ENOENT'), {
+      code: 'ENOENT',
+    });
+    expect(
+      resolveLatestRelease({
+        run: () => ({status: null, stdout: '', stderr: '', error: missing}),
+        onFailure,
+      }),
+    ).toBeNull();
+    expect(
+      resolveLatestRelease({
+        run: () => ({
+          status: 1,
+          stdout: '',
+          stderr: 'npm error code ECONNREFUSED\nnpm error errno ECONNREFUSED\n',
+        }),
+        onFailure,
+      }),
+    ).toBeNull();
+    expect(
+      resolveLatestRelease({
+        run: () => ({status: 0, stdout: '"latest"', stderr: ''}),
+        onFailure,
+      }),
+    ).toBeNull();
+    expect(reasons).toEqual([
+      'npm-missing',
+      'npm-failed: ECONNREFUSED',
+      'bad-reply',
+    ]);
   });
 
   it('starts npm from its entry file with this Node, never through a shell', () => {

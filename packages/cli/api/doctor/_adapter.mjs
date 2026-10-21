@@ -6,6 +6,7 @@ import {isOutsideProject} from '../../foundation/env/project-scope.mjs';
 import {answeredBy} from '../../foundation/release/run-context.mjs';
 import {
   knownLatestRelease,
+  lastCheckFailure,
   stateLockHolder,
 } from '../../foundation/release/global-state.mjs';
 import {
@@ -304,7 +305,7 @@ export {displayHomePath};
  * command that upgrades it.
  * @param {string} cwd
  * @param {{project: boolean}} options
- * @returns {{answeredBy: {cli: string, core: string | null, copy: string}, latest: string | null, globalBehind: ReturnType<typeof globalBehind> | null, projectLag: ReturnType<typeof projectLag> | null, lastNoticeSkip: ReturnType<typeof lastNoticeSkip>, stateLock: ReturnType<typeof stateLockHolder>, searchPathCommands: Array<import('../../foundation/env/search-path.mjs').SearchPathCommand & {upgrade: string | null}>}}
+ * @returns {{answeredBy: {cli: string, core: string | null, copy: string}, latest: string | null, globalBehind: ReturnType<typeof globalBehind> | null, projectLag: ReturnType<typeof projectLag> | null, lastNoticeSkip: ReturnType<typeof lastNoticeSkip>, lastCheckFailure: ReturnType<typeof lastCheckFailure>, stateLock: ReturnType<typeof stateLockHolder>, searchPathCommands: Array<import('../../foundation/env/search-path.mjs').SearchPathCommand & {upgrade: string | null}>}}
  */
 export function releaseFacts(cwd, {project}) {
   const answered = answeredBy(cwd);
@@ -312,6 +313,7 @@ export function releaseFacts(cwd, {project}) {
     answeredBy: answered,
     latest: knownLatestRelease(),
     lastNoticeSkip: lastNoticeSkip(),
+    lastCheckFailure: lastCheckFailure(),
     stateLock: stateLockHolder(),
     globalBehind:
       !project && isGlobalCopy(CLI_ROOT)

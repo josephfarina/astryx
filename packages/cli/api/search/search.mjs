@@ -128,6 +128,7 @@ import {
 import {AstryxError, coreDirOrThrow} from '../error.mjs';
 import {ERROR_CODES} from '../../foundation/response/error-codes.mjs';
 import {setResultCoverage} from './coverage.mjs';
+import {linkSearchResponse} from '../component/_adapter.mjs';
 
 /**
  * A search candidate gathered from one content domain. Extra underscore-
@@ -2509,5 +2510,5 @@ async function searchOnce(query, options) {
       components.map(c => ({name: c.name, keywords: c.keywords ?? []})),
     );
   }
-  return response;
+  return linkSearchResponse(response, cwd);
 }

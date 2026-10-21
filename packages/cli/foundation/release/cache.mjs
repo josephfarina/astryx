@@ -259,14 +259,22 @@ function realOrSelf(p) {
  * read by one: npm's own entry file run with this Node, from beside the
  * running Node, else from beside an `npm` on the PATH (on Windows, npm's
  * `npm.cmd` shim sits next to its `node_modules`); else `npm` on the PATH,
- * started directly.
- * @param {{env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform}} [where]
+ * started directly. An `npm` beside the running Node or on the PATH that
+ * links to npm's entry file (as distribution packages install it, such as
+ * `/usr/bin/npm` to `/usr/lib/node_modules_22/npm/bin/npm-cli.js`) counts as
+ * that entry file.
+ * @param {{env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform, execPath?: string}} [where]
+ *   `execPath`: the Node that runs npm (default: this one)
  * @returns {{command: string, prefix: string[], shell: false}}
  */
 export function npmCommand(where = {}) {
-  const {env = process.env, platform = process.platform} = where;
+  const {
+    env = process.env,
+    platform = process.platform,
+    execPath = process.execPath,
+  } = where;
   const paths = platform === 'win32' ? path.win32 : path.posix;
-  const nodeDir = paths.dirname(process.execPath);
+  const nodeDir = paths.dirname(execPath);
   const entry = (/** @type {string} */ dir) =>
     paths.join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
   const candidates = [
@@ -308,9 +316,25 @@ export function npmCommand(where = {}) {
             ],
       ),
   ];
+  if (platform !== 'win32') {
+    // An `npm` that links to npm's entry file: beside the running Node first.
+    for (const dir of [
+      nodeDir,
+      ...String(env.PATH ?? '')
+        .split(':')
+        .filter(Boolean),
+    ]) {
+      try {
+        const real = fs.realpathSync(paths.join(dir, 'npm'));
+        if (paths.basename(real) === 'npm-cli.js') candidates.push(real);
+      } catch {
+        // No npm there.
+      }
+    }
+  }
   for (const file of candidates) {
     if (fs.existsSync(file)) {
-      return {command: process.execPath, prefix: [file], shell: false};
+      return {command: execPath, prefix: [file], shell: false};
     }
   }
   return {command: 'npm', prefix: [], shell: false};
@@ -442,12 +466,19 @@ export function resolvePublishedVersion(name, spec, options = {}) {
 
 /**
  * The release the registry tags `latest` for the CLI, and the Node range it
- * declares; null when the registry cannot be asked.
- * @param {{run?: typeof runNpm}} [options]
+ * declares; null when the registry cannot be asked, with the reason given to
+ * `onFailure`: `npm-missing` (npm cannot be started), `npm-failed: <npm's
+ * error code>` (npm ran and failed, such as on ECONNREFUSED or E404), or
+ * `bad-reply` (npm's answer names no release).
+ * @param {{run?: typeof runNpm, onFailure?: (reason: string) => void}} [options]
  * @returns {{version: string, node: string | null} | null}
  */
 export function resolveLatestRelease(options = {}) {
   const run = options.run ?? runNpm;
+  const fail = (/** @type {string} */ reason) => {
+    options.onFailure?.(reason);
+    return null;
+  };
   const result = run(
     [
       'view',
@@ -459,18 +490,29 @@ export function resolveLatestRelease(options = {}) {
     ],
     {timeoutMs: 60_000},
   );
-  if (result.status !== 0) return null;
+  if (result.status !== 0) {
+    if (/** @type {any} */ (result.error)?.code === 'ENOENT') {
+      return fail('npm-missing');
+    }
+    const code =
+      /npm (?:error|ERR!) code (\S+)/u.exec(result.stderr)?.[1] ??
+      /** @type {any} */ (result.error)?.code ??
+      (result.signal ? result.signal : `exit ${result.status}`);
+    return fail(`npm-failed: ${code}`);
+  }
   let parsed;
   try {
     parsed = JSON.parse(result.stdout || 'null');
   } catch {
-    return null;
+    return fail('bad-reply');
   }
   const info = Array.isArray(parsed) ? parsed[parsed.length - 1] : parsed;
   if (typeof info === 'string') {
-    return isReleaseVersion(info) ? {version: info, node: null} : null;
+    return isReleaseVersion(info)
+      ? {version: info, node: null}
+      : fail('bad-reply');
   }
-  if (!info || !isReleaseVersion(info.version)) return null;
+  if (!info || !isReleaseVersion(info.version)) return fail('bad-reply');
   const node = info.engines?.node;
   return {version: info.version, node: typeof node === 'string' ? node : null};
 }

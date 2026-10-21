@@ -42,6 +42,7 @@ import {
 } from './global-state.mjs';
 import {recordRunChoice} from './run-context.mjs';
 import {noticeLines} from './notices.mjs';
+import {cliDoor, runWithCliDoor} from '../env/cli-command.mjs';
 
 /** Where each release's notes are published. */
 
@@ -195,9 +196,13 @@ export async function startRun({cliRoot, argv}) {
     );
   }
 
+  // A host's door holds only inside the call that set it; notices print as
+  // the process exits, outside it, so the door this run started under is
+  // kept and set again for them (FR5).
+  const door = cliDoor();
   /** FR10: after a successful command, at most once a day per notice. */
   const notify = () => {
-    try {
+    const print = () => {
       for (const line of noticeLines({
         cwd: process.cwd(),
         self,
@@ -208,6 +213,10 @@ export async function startRun({cliRoot, argv}) {
         // Synchronous: the process is exiting.
         writeSync(2, `${line}\n`);
       }
+    };
+    try {
+      if (door) runWithCliDoor(door, print);
+      else print();
     } catch {
       // A notice never fails a run.
     }
